@@ -602,10 +602,17 @@ class HyperMAML(MAML):
         self_copy = deepcopy(self)
 
         # deepcopy does not copy "fast" parameters so it should be done manually
-        for param1, param2 in zip(self.parameters(), self_copy.parameters()):
+        for param1, param2 in zip(self.feature.parameters(), self_copy.feature.parameters()):
             if hasattr(param1, 'fast'):
                 if param1.fast is not None:
                     param2.fast = param1.fast.clone()
+                else:
+                    param2.fast = None
+
+        for param1, param2 in zip(self.classifier.parameters(), self_copy.classifier.parameters()):
+            if hasattr(param1, 'fast'):
+                if param1.fast is not None:
+                    param2.fast = list(param1.fast)
                 else:
                     param2.fast = None
             if hasattr(param1, 'mu'):
