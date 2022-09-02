@@ -324,8 +324,7 @@ class HyperMAML(MAML):
                         # update weights of classifier network by adding gradient
                         for k, weight in enumerate(self.classifier.parameters()):
                             update_value = (self.train_lr * grad[classifier_offset + k])
-                            update_mean, logvar = delta_params_list[k]
-                            self._update_weight(weight, update_value, logvar, train_stage)
+                            self._update_weight(weight, update_value, None, train_stage)
 
                     elif 0.0 < p < 1.0:
                         # update weights of classifier network by adding gradient and output of hypernetwork
@@ -333,6 +332,7 @@ class HyperMAML(MAML):
                             update_value = self.train_lr * p * grad[classifier_offset + k]
                             update_mean, logvar = delta_params_list[k]
                             update_mean = (1 - p) * update_mean + update_value
+                            logvar = (1 - p) * logvar
                             self._update_weight(weight, update_mean, logvar, train_stage)
             else:
                 for k, weight in enumerate(self.classifier.parameters()):
