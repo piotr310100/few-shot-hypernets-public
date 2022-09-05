@@ -136,6 +136,8 @@ filelists/QMUL/images/
 filelists/QMUL/QMUL_360degreeViewSphere_FaceDatabase
 filelists/QMUL/*.json
 
+# folder path configs
+/configs.py
 
 # neptune logs
 .neptune/
