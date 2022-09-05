@@ -273,8 +273,9 @@ class HyperMAML(MAML):
             return (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (self.hm_maml_warmup_switch_epochs + 1)
         return 0.0
 
-    def _get_l_value(self):
-        return self.epoch / (self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs)
+    def _get_logvar(self, logvar, p):
+        l = self.epoch / (self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs)
+        return l * logvar - 2 * (1 - p)
 
     def _update_network_weights(self, delta_params_list, support_embeddings, support_data_labels, train_stage = False):
         if self.hm_maml_warmup and not self.single_test: 
@@ -335,7 +336,7 @@ class HyperMAML(MAML):
                             update_value = self.train_lr * p * grad[classifier_offset + k]
                             update_mean, logvar = delta_params_list[k]
                             update_mean = (1 - p) * update_mean + update_value
-                            logvar = (1 - p) * logvar * self._get_l_value()
+                            logvar = self._get_logvar(logvar, p)
                             self._update_weight(weight, update_mean, logvar, train_stage)
             else:
                 for k, weight in enumerate(self.classifier.parameters()):
