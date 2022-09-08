@@ -48,6 +48,8 @@ class HyperMAML(MAML):
         self.loss_fn = nn.CrossEntropyLoss()
         self.loss_kld = kl_diag_gauss_with_standard_gauss
         self.kl_w = params.hm_kl_w
+        self.kl_scale = 1e-24
+        self.kl_step = None
 
         self.weight_set_num_train = params.hm_weight_set_num_train
         self.weight_set_num_test = params.hm_weight_set_num_test if params.hm_weight_set_num_test != 0 else None
@@ -273,9 +275,10 @@ class HyperMAML(MAML):
             return (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (self.hm_maml_warmup_switch_epochs + 1)
         return 0.0
 
-    def _get_logvar(self, logvar, p):
-        l = self.epoch / (self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs)
-        return l * logvar - 2 * (1 - p)
+    def _scale_step(self):
+        if self.kl_step is None:
+            self.kl_step = np.power(10, 21 / self.stop_epoch)
+        self.kl_scale = self.kl_scale * self.kl_step
 
     def _update_network_weights(self, delta_params_list, support_embeddings, support_data_labels, train_stage = False):
         if self.hm_maml_warmup and not self.single_test: 
@@ -303,7 +306,7 @@ class HyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     set_loss = self.loss_fn(scores, support_data_labels)
-                    reduction = 1 / support_data_labels.size(dim = 0)
+                    reduction = self.kl_scale
                     for weight in self.classifier.parameters():
                         if weight.logvar is not None:
                             if weight.mu is not None:
@@ -432,7 +435,9 @@ class HyperMAML(MAML):
             support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
-        reduction = 1 / query_data_labels.size(dim = 0)
+        reduction = self.kl_scale
+        if self.epoch != self.stop_epoch:
+            self._scale_step()
 
         loss_ce = self.loss_fn(scores, query_data_labels)
 
@@ -458,7 +463,7 @@ class HyperMAML(MAML):
         scores, _ = self.set_forward(x, is_feature = False, train_stage = False)
         support_data_labels = Variable( torch.from_numpy( np.repeat(range(self.n_way), self.n_support))).cuda()
 
-        reduction = 1 / support_data_labels.size(dim = 0)
+        reduction = self.kl_scale
 
         loss_ce = self.loss_fn(scores, support_data_labels)
 
