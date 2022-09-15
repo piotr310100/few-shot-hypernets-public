@@ -117,7 +117,7 @@ def experiment(params):
     print(out)
     model.n_query = x2.size(1) - model.n_support
     x2 = x2.cuda()
-    x2_var = torch.autograd.Variable(x)
+    x2_var = torch.autograd.Variable(x2)
     support_data2 = x2_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support, *x2.size()[2:]) # support data
     query_data2 = x2_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,  *x2.size()[2:]) # query data\
     
@@ -141,25 +141,37 @@ def experiment(params):
     q2 = np.array(q2)
 
     neptune_run = setup_neptune(params)    
-    
+
     for k, col in enumerate(s.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
+        mu = np.mean(col)
+        std = np.std(col)
+        plt.title(f'$\mu = {mu}, \sigma = {std}$')
         neptune_run[f"Support1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(q.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
+        mu = np.mean(col)
+        std = np.std(col)
+        plt.title(f'$\mu = {mu}, \sigma = {std}$')
         neptune_run[f"Query1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(s2.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
+        mu = np.mean(col)
+        std = np.std(col)
+        plt.title(f'$\mu = {mu}, \sigma = {std}$')
         neptune_run[f"Support2 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(q2.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
+        mu = np.mean(col)
+        std = np.std(col)
+        plt.title(f'$\mu = {mu}, \sigma = {std}$')
         neptune_run[f"Query2 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
 
