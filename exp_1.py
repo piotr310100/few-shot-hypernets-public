@@ -43,6 +43,10 @@ def experiment(params):
     base_datamgr = SetDataManager(image_size, **train_few_shot_params)  # n_eposide=100
     base_loader = base_datamgr.get_data_loader(base_file, aug=params.train_aug)
 
+    test_few_shot_params = dict(n_way=params.test_n_way, n_support=params.n_shot, n_query=n_query)
+    val_datamgr = SetDataManager(image_size, **test_few_shot_params)
+    val_loader = val_datamgr.get_data_loader(val_file, aug=False)
+
     if params.dataset in ['omniglot', 'cross_char']:
         assert params.model == 'Conv4' and not params.train_aug ,'omniglot only support Conv4 without augmentation'
         # params.model = 'Conv4S'
@@ -93,40 +97,74 @@ def experiment(params):
 
     model.train()
 
-    x, _ = next(iter(base_loader))
+    x, out = next(iter(val_loader))
+    print(out)
     model.n_query = x.size(1) - model.n_support
     loss, loss_ce, loss_kld, loss_kld_no_scale, task_accuracy, sigma, mu = model.set_forward_loss(x, False)
-    
-    model.eval()
-    model.weight_set_num_train = 1
-    model.weight_set_num_test = 1
-    x, _ = next(iter(base_loader))
     x = x.cuda()
     x_var = torch.autograd.Variable(x)
     support_data = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support, *x.size()[2:]) # support data
     query_data = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,  *x.size()[2:]) # query data\
+    
+    model.eval()
+    model.weight_set_num_train = 1
+    model.weight_set_num_test = 1
+
     s = []
     q = []
+
+    x2, out = next(iter(val_loader))
+    print(out)
+    model.n_query = x2.size(1) - model.n_support
+    x2 = x2.cuda()
+    x2_var = torch.autograd.Variable(x)
+    support_data2 = x2_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support, *x2.size()[2:]) # support data
+    query_data2 = x2_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,  *x2.size()[2:]) # query data\
+    
+    model.eval()
+    model.weight_set_num_train = 1
+    model.weight_set_num_test = 1
+
+    s2 = []
+    q2 = []
     for _ in range(100):
         for weight in model.classifier.parameters():
             weight.fast = [reparameterize(weight.mu, weight.logvar)]
         s.append(F.softmax(model.forward(support_data), dim=1)[0].clone().data.cpu().numpy())
         q.append(F.softmax(model.forward(query_data), dim=1)[0].clone().data.cpu().numpy())
+        s2.append(F.softmax(model.forward(support_data2), dim=1)[0].clone().data.cpu().numpy())
+        q2.append(F.softmax(model.forward(query_data2), dim=1)[0].clone().data.cpu().numpy())
+
     s = np.array(s)
     q = np.array(q)
+    s2 = np.array(s2)
+    q2 = np.array(q2)
 
-    neptune_run = setup_neptune(params)
+    neptune_run = setup_neptune(params)    
     
     for k, col in enumerate(s.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
-        neptune_run[f"Support class {k} histogram"].upload(File.as_image(fig))
+        neptune_run[f"Support1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(q.T):
         fig = plt.figure()
         plt.hist(col, edgecolor ="black")
-        neptune_run[f"Query class {k} histogram"].upload(File.as_image(fig))
+        neptune_run[f"Query1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
+    for k, col in enumerate(s2.T):
+        fig = plt.figure()
+        plt.hist(col, edgecolor ="black")
+        neptune_run[f"Support2 class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
+    for k, col in enumerate(q2.T):
+        fig = plt.figure()
+        plt.hist(col, edgecolor ="black")
+        neptune_run[f"Query2 class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
+
+
+    
 
 def main():        
    params = parse_args('train')
