@@ -365,3 +365,8 @@ Time: 20220915-105029, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 
 Time: 20220915-105045, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 89.09% +- 0.55% 
 Time: 20220915-105101, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 88.80% +- 0.57% 
 Time: 20220915-105119, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 89.31% +- 0.57% 
+Time: 20220919-110221, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 88.66% +- 0.56% 
+Time: 20220919-110238, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 89.23% +- 0.56% 
+Time: 20220919-110254, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 89.10% +- 0.56% 
+Time: 20220919-110311, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 88.60% +- 0.60% 
+Time: 20220919-110327, Setting: cross_char-novel-Conv4-hyper_maml-adapted 5shot 5way_train 5way_test, Acc: 600 Test Acc = 89.65% +- 0.56% 

@@ -134,8 +134,9 @@ def experiment(params):
     s1 = []
     q1 = []
     x2, out2 = next(iter(val_loader))
-    while torch.all(torch.eq(out1, out2), dim=1).sum() > 0:
+    while np.intersect1d(out1, out2).size > 0:
         x2, out2 = next(iter(val_loader))
+
     print(out1)
     print(out2)
 
