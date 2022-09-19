@@ -1,6 +1,4 @@
 from pathlib import Path
-from tabnanny import check
-from tkinter import S
 
 import torch
 import torch.optim
@@ -15,7 +13,7 @@ import configs
 from data.datamgr import SetDataManager
 
 from methods.hypernets.hypermaml import HyperMAML
-from io_utils import model_dict, parse_args, get_best_file , get_assigned_file, setup_neptune
+from io_utils import model_dict, parse_args, get_best_file , setup_neptune
 from methods.hypernets.utils import reparameterize
 
 
@@ -97,24 +95,50 @@ def experiment(params):
 
     model.train()
 
-    x, out = next(iter(val_loader))
-    print(out)
+    neptune_run = setup_neptune(params)    
+
+    x, out1 = next(iter(val_loader))
     model.n_query = x.size(1) - model.n_support
     loss, loss_ce, loss_kld, loss_kld_no_scale, task_accuracy, sigma, mu = model.set_forward_loss(x, False)
+    sigma, mu = model._mu_sigma(True)
+    if sigma is not None:
+        for name, value in sigma.items():
+            fig = plt.figure()
+            plt.plot(value, 's')
+            neptune_run[f"sigma / {name} / plot"].upload(File.as_image(fig))
+            plt.close(fig)
+            fig = plt.figure()
+            plt.hist(value, edgecolor ="black")
+            neptune_run[f"sigma / {name} / histogram"].upload(File.as_image(fig))
+            plt.close(fig)
+    if mu is not None:
+        for name, value in mu.items():
+            fig = plt.figure()
+            plt.plot(value, 's')
+            neptune_run[f"mu / {name} / plot"].upload(File.as_image(fig))
+            plt.close(fig)
+            fig = plt.figure()
+            plt.hist(value, edgecolor ="black")
+            neptune_run[f"mu / {name} / histogram"].upload(File.as_image(fig))
+            plt.close(fig)
+
     x = x.cuda()
     x_var = torch.autograd.Variable(x)
     support_data = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support, *x.size()[2:]) # support data
-    query_data = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,  *x.size()[2:]) # query data\
+    query_data = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,  *x.size()[2:]) # query data
     
     model.eval()
     model.weight_set_num_train = 1
     model.weight_set_num_test = 1
 
-    s = []
-    q = []
+    s1 = []
+    q1 = []
+    x2, out2 = next(iter(val_loader))
+    while torch.all(torch.eq(out1, out2), dim=1).sum() > 0:
+        x2, out2 = next(iter(val_loader))
+    print(out1)
+    print(out2)
 
-    x2, out = next(iter(val_loader))
-    print(out)
     model.n_query = x2.size(1) - model.n_support
     x2 = x2.cuda()
     x2_var = torch.autograd.Variable(x2)
@@ -130,52 +154,49 @@ def experiment(params):
     for _ in range(100):
         for weight in model.classifier.parameters():
             weight.fast = [reparameterize(weight.mu, weight.logvar)]
-        s.append(F.softmax(model.forward(support_data), dim=1)[0].clone().data.cpu().numpy())
-        q.append(F.softmax(model.forward(query_data), dim=1)[0].clone().data.cpu().numpy())
+
+        s1.append(F.softmax(model.forward(support_data), dim=1)[0].clone().data.cpu().numpy())
+        q1.append(F.softmax(model.forward(query_data), dim=1)[0].clone().data.cpu().numpy())
         s2.append(F.softmax(model.forward(support_data2), dim=1)[0].clone().data.cpu().numpy())
         q2.append(F.softmax(model.forward(query_data2), dim=1)[0].clone().data.cpu().numpy())
 
-    s = np.array(s)
-    q = np.array(q)
+    s1 = np.array(s1)
+    q1 = np.array(q1)
     s2 = np.array(s2)
     q2 = np.array(q2)
 
-    neptune_run = setup_neptune(params)    
-
-    for k, col in enumerate(s.T):
+    for k, col in enumerate(s1.T):
         fig = plt.figure()
-        plt.hist(col, edgecolor ="black")
+        plt.hist(col, edgecolor ="black", range=[0, 1], bins = 25)
         mu = np.mean(col)
         std = np.std(col)
-        plt.title(f'$\mu = {mu}, \sigma = {std}$')
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
         neptune_run[f"Support1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
-    for k, col in enumerate(q.T):
+    for k, col in enumerate(q1.T):
         fig = plt.figure()
-        plt.hist(col, edgecolor ="black")
+        plt.hist(col, edgecolor ="black", range=[0, 1], bins = 25)
         mu = np.mean(col)
         std = np.std(col)
-        plt.title(f'$\mu = {mu}, \sigma = {std}$')
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
         neptune_run[f"Query1 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(s2.T):
         fig = plt.figure()
-        plt.hist(col, edgecolor ="black")
+        plt.hist(col, edgecolor ="black", range=[0, 1], bins = 25)
         mu = np.mean(col)
         std = np.std(col)
-        plt.title(f'$\mu = {mu}, \sigma = {std}$')
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
         neptune_run[f"Support2 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
     for k, col in enumerate(q2.T):
         fig = plt.figure()
-        plt.hist(col, edgecolor ="black")
+        plt.hist(col, edgecolor ="black", range=[0, 1], bins = 25)
         mu = np.mean(col)
         std = np.std(col)
-        plt.title(f'$\mu = {mu}, \sigma = {std}$')
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
         neptune_run[f"Query2 class {k} histogram"].upload(File.as_image(fig))
         plt.close(fig)
-
-
     
 
 def main():        
