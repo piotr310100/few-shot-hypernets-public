@@ -156,10 +156,11 @@ def experiment(params):
         for weight in model.classifier.parameters():
             weight.fast = [reparameterize(weight.mu, weight.logvar)]
 
-        s1.append(F.softmax(model.forward(support_data), dim=1)[0].clone().data.cpu().numpy())
-        q1.append(F.softmax(model.forward(query_data), dim=1)[0].clone().data.cpu().numpy())
-        s2.append(F.softmax(model.forward(support_data2), dim=1)[0].clone().data.cpu().numpy())
-        q2.append(F.softmax(model.forward(query_data2), dim=1)[0].clone().data.cpu().numpy())
+        s1.append(F.softmax(model(support_data), dim=1)[0].clone().data.cpu().numpy())
+        q1.append(F.softmax(model(query_data), dim=1)[0].clone().data.cpu().numpy())
+        
+        s2.append(F.softmax(model(support_data2), dim=1)[0].clone().data.cpu().numpy())
+        q2.append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
 
     s1 = np.array(s1)
     q1 = np.array(q1)
