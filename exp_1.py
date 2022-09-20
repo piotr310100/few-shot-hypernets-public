@@ -216,26 +216,6 @@ def experiment(params_experiment):
     model.weight_set_num_train = 1
     model.weight_set_num_test = 1
 
-<<<<<<< Updated upstream
-    s1 = []
-    q1 = []
-    # new batch for experiment
-    x2, out2 = next(iter(val_loader))
-    while np.intersect1d(out1, out2).size > 0:
-        x2, out2 = next(iter(val_loader))
-
-    print(out1)
-    print(out2)
-
-    model.n_query = x2.size(1) - model.n_support
-    x2 = x2.cuda()
-    x2_var = torch.autograd.Variable(x2)
-    support_data2 = x2_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
-                                                                           *x2.size()[2:])  # support data
-    query_data2 = x2_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
-                                                                         *x2.size()[2:])  # query data\
-
-=======
     features_unseen = []
     # new batches for experiment
     for _ in range(params_experiment.num_batches_unseen):
@@ -249,7 +229,6 @@ def experiment(params_experiment):
         features_unseen.append(features2)
 
     model.n_query = features[-1].size(1) - model.n_support
->>>>>>> Stashed changes
     model.eval()
     for i, features2 in enumerate(features_unseen):
         features2 = features2.cuda()
@@ -271,52 +250,6 @@ def experiment(params_experiment):
     for _ in range(num_samples):
         for weight in model.classifier.parameters():
             weight.fast = [reparameterize(weight.mu, weight.logvar)]
-<<<<<<< Updated upstream
-
-        s1.append(F.softmax(model(support_data), dim=1)[0].clone().data.cpu().numpy())
-        q1.append(F.softmax(model(query_data), dim=1)[0].clone().data.cpu().numpy())
-        
-        s2.append(F.softmax(model(support_data2), dim=1)[0].clone().data.cpu().numpy())
-        q2.append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
-
-    s1 = np.array(s1)
-    q1 = np.array(q1)
-    s2 = np.array(s2)
-    q2 = np.array(q2)
-
-    for k, col in enumerate(s1.T):
-        fig = plt.figure()
-        plt.hist(col, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(col)
-        std = np.std(col)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Support1 class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-    for k, col in enumerate(q1.T):
-        fig = plt.figure()
-        plt.hist(col, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(col)
-        std = np.std(col)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Query1 class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-    for k, col in enumerate(s2.T):
-        fig = plt.figure()
-        plt.hist(col, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(col)
-        std = np.std(col)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Support2 class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-    for k, col in enumerate(q2.T):
-        fig = plt.figure()
-        plt.hist(col, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(col)
-        std = np.std(col)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Query2 class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-=======
         for i, support_data1 in enumerate(support_datas1):
             if i not in s1:
                 s1[i] = []
@@ -335,7 +268,6 @@ def experiment(params_experiment):
             q2[i].append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
 
     plot_histograms(neptune_run, s1, s2, q1, q2)
->>>>>>> Stashed changes
 
 
 def main():
