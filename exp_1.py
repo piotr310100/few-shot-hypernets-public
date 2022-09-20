@@ -141,13 +141,7 @@ def experiment(params):
     q1 = []
     # new batch for experiment
     x2, out2 = next(iter(val_loader))
-    # while torch.all(torch.eq(out1, out2), dim=1).sum() > 0:
-    #     x2, out2 = next(iter(val_loader))
-    # while torch.all(torch.size(torch.unique(torch.cat([out1,out2])),dim=1) == out1.size(dim=1))
-
-    # if cat(both labels).len == unique.cat(both labels).len then there is no repetition between batches
-    while not torch.all( torch.eq(torch.cat([out1, out2]).size(dim=1),
-                                  torch.unique(torch.cat([out1, out2])).size(dim=1)).sum() == 1, dim=1):
+    while np.intersect1d(out1, out2).size > 0:
         x2, out2 = next(iter(val_loader))
 
     print(out1)
@@ -171,10 +165,11 @@ def experiment(params):
         for weight in model.classifier.parameters():
             weight.fast = [reparameterize(weight.mu, weight.logvar)]
 
-        s1.append(F.softmax(model.forward(support_data), dim=1)[0].clone().data.cpu().numpy())
-        q1.append(F.softmax(model.forward(query_data), dim=1)[0].clone().data.cpu().numpy())
-        s2.append(F.softmax(model.forward(support_data2), dim=1)[0].clone().data.cpu().numpy())
-        q2.append(F.softmax(model.forward(query_data2), dim=1)[0].clone().data.cpu().numpy())
+        s1.append(F.softmax(model(support_data), dim=1)[0].clone().data.cpu().numpy())
+        q1.append(F.softmax(model(query_data), dim=1)[0].clone().data.cpu().numpy())
+        
+        s2.append(F.softmax(model(support_data2), dim=1)[0].clone().data.cpu().numpy())
+        q2.append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
 
     s1 = np.array(s1)
     q1 = np.array(q1)
