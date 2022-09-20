@@ -310,10 +310,7 @@ class HyperMAML(MAML):
                     reduction = self.kl_scale
                     for weight in self.classifier.parameters():
                         if weight.logvar is not None:
-                            if weight.mu is not None:
-                                set_loss = set_loss + self.kl_w * reduction * self.loss_kld(weight.mu, weight.logvar)
-                            else:
-                                set_loss = set_loss + self.kl_w * reduction * self.loss_kld(weight, weight.logvar)
+                            set_loss = set_loss + self.kl_w * reduction * self.loss_kld(weight, weight.logvar)
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True, allow_unused=True) #build full graph support gradient of gradient
 
@@ -463,9 +460,9 @@ class HyperMAML(MAML):
         loss_kld = torch.zeros_like(loss_ce)
         loss_kld_no_scale = torch.zeros_like(loss_ce)
         
-        for name, weight in self.classifier.named_parameters():
-            if weight.mu is not None and weight.logvar is not None:
-                val = self.loss_kld(weight.mu, weight.logvar)
+        for weight in self.classifier.parameters():
+            if weight.logvar is not None:
+                val = self.loss_kld(weight, weight.logvar)
                 loss_kld_no_scale = loss_kld_no_scale + val
                 loss_kld = loss_kld + self.kl_w * reduction * val
 
@@ -492,9 +489,9 @@ class HyperMAML(MAML):
 
         loss_kld = torch.zeros_like(loss_ce)
 
-        for name, weight in self.classifier.named_parameters():
-            if weight.mu is not None and weight.logvar is not None:
-                loss_kld = loss_kld + self.kl_w * reduction * self.loss_kld(weight.mu, weight.logvar)
+        for weight in self.classifier.parameters():
+            if weight.logvar is not None:
+                loss_kld = loss_kld + self.kl_w * reduction * self.loss_kld(weight, weight.logvar)
 
         loss = loss_ce + loss_kld
 
