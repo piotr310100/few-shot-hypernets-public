@@ -82,7 +82,7 @@ class SetDataManager(DataManager):
         dataset = SetDataset( data_file , self.batch_size, transform )
         sampler = EpisodicBatchSampler(len(dataset), self.n_way, self.n_eposide )  
 
-        data_loader_params = dict(batch_sampler = sampler, num_workers = 8, pin_memory=True)
+        data_loader_params = dict(batch_sampler= sampler, num_workers= 8, pin_memory=True)
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
         return data_loader
 

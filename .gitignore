@@ -3,6 +3,8 @@
 filelists
 !filelists/*/*.[sh|py]
 
+/configs.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -135,6 +137,7 @@ filelists/QMUL/*.zip
 filelists/QMUL/images/
 filelists/QMUL/QMUL_360degreeViewSphere_FaceDatabase
 filelists/QMUL/*.json
+
 
 
 # neptune logs
