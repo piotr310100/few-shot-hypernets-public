@@ -1,14 +1,17 @@
+import pickle
+import shutil
 from pathlib import Path
 from functools import reduce
 import torch
 import torch.optim
 import torch.utils.data.sampler
 from torch.nn import functional as F
-
+import pickle as pkl
 import numpy as np
 import matplotlib.pyplot as plt
 from neptune.new.types import File
-
+import os
+from os import path
 import configs
 from data.datamgr import SetDataManager
 
@@ -16,8 +19,8 @@ from methods.hypernets.hypermaml import HyperMAML
 from io_utils import model_dict, parse_args, get_best_file, setup_neptune
 from methods.hypernets.utils import reparameterize
 
-
-def plot_mu_sigma(neptune_run, model, i):
+save_numeric_data = True
+def plot_mu_sigma(neptune_run, model, i, save_numeric_data=save_numeric_data):
     # get flattened mu and sigma
     sigma, mu = model._mu_sigma(True)
     # plotting to neptune
@@ -31,6 +34,8 @@ def plot_mu_sigma(neptune_run, model, i):
             plt.hist(value, edgecolor="black")
             neptune_run[f"sigma / {i} / {name} / histogram"].upload(File.as_image(fig))
             plt.close(fig)
+            if save_numeric_data:
+                neptune_run[f"sigma / {i} / {name} / data"].upload(File.as_pickle(value))
     if mu is not None:
         for name, value in mu.items():
             fig = plt.figure()
@@ -41,13 +46,17 @@ def plot_mu_sigma(neptune_run, model, i):
             plt.hist(value, edgecolor="black")
             neptune_run[f"mu / {i} / {name} / histogram"].upload(File.as_image(fig))
             plt.close(fig)
-
+            if save_numeric_data:
+                neptune_run[f"mu / {i} / {name} / data"].upload(File.as_pickle(value))
 
 # plot uncertainty in classification
-def plot_histograms(neptune_run, s1, s2, q1, q2):
+def plot_histograms(neptune_run, s1, s2, q1, q2, save_numeric_data=save_numeric_data):
 
     # seen support
     for i, scores in s1.items():
+        if save_numeric_data:
+            path = f'exp_1_data/Seen/Support/{i}'
+            os.mkdir(path)
         scores = np.transpose(np.array(scores))
         for k, score in enumerate(scores):
             score = np.array(score)
@@ -59,9 +68,18 @@ def plot_histograms(neptune_run, s1, s2, q1, q2):
             plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
             neptune_run[f"Seen / Support / {i} / Class {k} histogram"].upload(File.as_image(fig))
             plt.close(fig)
+            # save on neptune
+            if save_numeric_data:
+                neptune_run[f"Seen / Support / {i} / Class {k} data"].upload(File.as_pickle(score))
+                filepath = path + f'/Class_{k}_data'
+                with open(filepath, 'wb') as f:
+                    pickle.dump(score,f)
 
     # seen query
     for i, scores in q1.items():
+        if save_numeric_data:
+            path = f'exp_1_data/Seen/Query/{i}'
+            os.mkdir(path)
         scores = np.transpose(np.array(scores))
         for k, score in enumerate(scores):
             score = np.array(score)
@@ -72,9 +90,18 @@ def plot_histograms(neptune_run, s1, s2, q1, q2):
             plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
             neptune_run[f"Seen / Query / {i} / Class {k} histogram"].upload(File.as_image(fig))
             plt.close(fig)
+            # save on neptune
+            if save_numeric_data:
+                neptune_run[f"Seen / Query / {i} / Class {k} data"].upload(File.as_pickle(score))
+                filepath = path + f'/Class_{k}_data'
+                with open(filepath, 'wb') as f:
+                    pickle.dump(score,f)
 
     # unseen support
     for i, scores in s2.items():
+        if save_numeric_data:
+            path = f'exp_1_data/Unseen/Support/{i}'
+            os.mkdir(path)
         scores = np.transpose(np.array(scores))
         for k, score in enumerate(scores):
             score = np.array(score)
@@ -85,9 +112,18 @@ def plot_histograms(neptune_run, s1, s2, q1, q2):
             plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
             neptune_run[f"Unseen / Support / {i} / Class {k} histogram"].upload(File.as_image(fig))
             plt.close(fig)
-
+            if save_numeric_data:
+                # save on neptune
+                neptune_run[f"Unseen / Support / {i} / Class {k} data"].upload(File.as_pickle(score))
+                # save file locally
+                filepath = path + f'/Class_{k}_data'
+                with open(filepath, 'wb') as f:
+                    pickle.dump(score,f)
     # unseen query
     for i, scores in q2.items():
+        if save_numeric_data:
+            path = f'exp_1_data/Unseen/Query/{i}'
+            os.mkdir(path)
         scores = np.transpose(np.array(scores))
         for k, score in enumerate(scores):
             score = np.array(score)
@@ -98,6 +134,13 @@ def plot_histograms(neptune_run, s1, s2, q1, q2):
             plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
             neptune_run[f"Unseen / Query / {i} / Class {k} histogram"].upload(File.as_image(fig))
             plt.close(fig)
+            if save_numeric_data:
+                # save on neptune
+                neptune_run[f"Unseen / Query / {i} / Class {k} data"].upload(File.as_pickle(score))
+                # save file locally
+                filepath = path + f'/Class_{k}_data'
+                with open(filepath, 'wb') as f:
+                    pickle.dump(score,f)
 
 
 def getCheckpointDir(params, configs):
@@ -122,8 +165,20 @@ def getCheckpointDir(params, configs):
     assert Path(checkpoint_dir).exists(), checkpoint_dir
     return checkpoint_dir
 
+def initLocalDirectories():
+    if path.isdir('exp_1_data'):
+        shutil.rmtree('exp_1_data')
+    os.mkdir('exp_1_data')
+    os.mkdir('exp_1_data/Seen')
+    os.mkdir('exp_1_data/Seen/Support')
+    os.mkdir('exp_1_data/Seen/Query')
+    os.mkdir('exp_1_data/Unseen')
+    os.mkdir('exp_1_data/Unseen/Support')
+    os.mkdir('exp_1_data/Unseen/Query')
 
 def experiment(params_experiment):
+    if save_numeric_data:
+        initLocalDirectories()
     num_samples = params_experiment.num_samples
     if params_experiment.dataset == 'cross':
         base_file = configs.data_dir['miniImagenet'] + 'all.json'

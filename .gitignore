@@ -3,6 +3,9 @@
 filelists
 !filelists/*/*.[sh|py]
 
+# for experiment 1
+/exp_1_data
+
 /configs.py
 
 # Byte-compiled / optimized / DLL files
