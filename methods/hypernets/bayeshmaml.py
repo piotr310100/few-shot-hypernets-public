@@ -1,17 +1,14 @@
-from argparse import Namespace
 from copy import deepcopy
 import numpy as np
 import torch
 from torch import nn as nn
 from torch.autograd import Variable
 from torch.nn import functional as F
-import warnings
-from scipy.stats import multivariate_normal
+
 import backbone
 from methods.hypernets.utils import get_param_dict, kl_diag_gauss_with_standard_gauss, \
     reparameterize
 from methods.hypernets.hypermaml import HyperMAML
-from regressionFlow.models.networks_regression_SDD import HyperRegression
 
 
 class BHyperNet(nn.Module):
@@ -46,7 +43,6 @@ class BHyperNet(nn.Module):
 
 
 class BayesHMAML(HyperMAML):
-
     def __init__(self, model_func, n_way, n_support, n_query, params=None, approx=False):
         super(BayesHMAML, self).__init__(model_func, n_way, n_support, n_query, approx=approx, params=params)
         # loss function component
@@ -59,34 +55,6 @@ class BayesHMAML(HyperMAML):
         self.weight_set_num_train = params.hm_weight_set_num_train  # train phase
         self.weight_set_num_test = params.hm_weight_set_num_test if params.hm_weight_set_num_test != 0 else None  # test phase
 
-        # copy of toyexamples from regFlow.
-        # todo Pozniej mozna usunac niepotrzebne, a te konfiguracje gdzies przeniesc do innego pliku
-        # if dims 2-4-2 then HyperFlowNetwork output has proper dims (in toy examples 32-32-32)
-        self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=2, dims='2-3-3',
-                                   latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
-                                   layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
-                                   use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
-                                   sync_bn=False, bn_lag=0, root_dir=None, use_latent_flow=False,
-                                   use_deterministic_encoder=False,
-                                   zdim=1, optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
-                                   beta2=0.999, momentum=0.9, weight_decay=1e-05, epochs=1000, seed=694754,
-                                   recon_weight=1.0, prior_weight=1.0, entropy_weight=1.0, scheduler='linear',
-                                   exp_decay=1.0, exp_decay_freq=1, image_size='28x28', data_dir='data/SDD/',
-                                   dataset_type='shapenet15k', cates=['airplane'],
-                                   mn40_data_dir='data/ModelNet40.PC15k',
-                                   mn10_data_dir='data/ModelNet10.PC15k', dataset_scale=1.0, random_rotate=False,
-                                   normalize_per_shape=False, normalize_std_per_axis=False, tr_max_sample_points=2048,
-                                   te_max_sample_points=2048, num_workers=4, use_all_data=False,
-                                   log_name='experiment_regression_flow_toy', viz_freq=1, val_freq=10, log_freq=1,
-                                   save_freq=5, no_validation=False, save_val_results=False, eval_classification=False,
-                                   no_eval_sampling=False, max_validate_shapes=None, resume_checkpoint=None,
-                                   resume_optimizer=False, resume_non_strict=False, resume_dataset_mean=None,
-                                   resume_dataset_std=None, world_size=1, dist_url='tcp://127.0.0.1:9991',
-                                   dist_backend='nccl', distributed=False, rank=0, gpu=0, evaluate_recon=False,
-                                   num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
-                                   use_div_approx_train=False, use_div_approx_test=False)
-
-        self.flow = HyperRegression(self.flow_args)
 
     def _init_classifier(self):
         assert self.hn_tn_hidden_size % self.n_way == 0, f"hn_tn_hidden_size {self.hn_tn_hidden_size} should be the multiple of n_way {self.n_way}"
@@ -184,29 +152,11 @@ class BayesHMAML(HyperMAML):
                 delta_params_list.append([delta_mean, logvar])
             return delta_params_list
 
-    # def adjustFlowArchitecture(self, mu: torch.Tensor) -> tuple:  # todo
-    #     """returns tuple of HyperFlowNetwork args.dims
-    #         so that shape(x) == shape(flow(x))"""
-    #     if mu.shape == (5, 64) and self.flow_args['input_dim'] == 2:
-    #         return 2, 4, 2
-    #     else:
-    #         raise NotImplementedError
-
-    @staticmethod
-    def getDensityFlowError(weight):
-        weight = weight.flatten()
-        return torch.tensor(multivariate_normal.pdf(weight, np.zeros_like(weight)))
-
-    def _update_weight(self, weight, update_mean, logvar, train_stage=False):  # overwrite parent function
+    def _update_weight(self, weight, update_mean, logvar, train_stage=False):
         """ get distribution associated with weight. Sample weights for target network. """
         if update_mean is None and logvar is None:
             return
-
-        # # todo adjusting flow archtecture to given weight dims
-        # if weight.mu is not None and not hasattr(self, 'flow_architecture_shape'):
-        #     self.flow_architecture_shape = self.adjustFlowArchitecture(weight.mu)
-        #     self.args['dims'] = "-".join(self.flow_architecture_shape)
-
+        # if weight.mu is None:
         if not hasattr(weight, 'mu') or weight.mu is None:
             weight.mu = None
             weight.mu = weight - update_mean
@@ -218,53 +168,17 @@ class BayesHMAML(HyperMAML):
             weight.fast.append(weight.mu)
         else:
             weight.logvar = logvar
-            weight.fast = []
-            set_num = self.weight_set_num_train if train_stage else self.weight_set_num_test
-            if self.hm_use_class_batch_input:
-                weight.loss_flow = []
-                for _ in range(set_num):
-                    # todo poki co ignorujemy calkowicie logvar, potem sie ten 'kanal' w calosci wywali.
-                    y = torch.normal(0, 1, size=(*weight.mu.shape, 2)).to(weight.mu)
-                    weights, loss = self.flow(weight.mu, y)
 
-                    weight.fast.append(weights)  # weights with bias: (5,65)
-                    weight.loss_flow.append(loss + self.getDensityFlowError(weights.cpu().detach().numpy()).to(loss))  # tensor single val
-            else:
-                warnings.warn("Use hm_use_class_batch_input for flow support. "
-                              "Sampling weight from input weight distribution instead")
-                if train_stage:
+            weight.fast = []
+            if train_stage:
+                for _ in range(self.weight_set_num_train):  # sample fast parameters for training
                     weight.fast.append(reparameterize(weight.mu, weight.logvar))
+            else:
+                if self.weight_set_num_test is not None:
+                    for _ in range(self.weight_set_num_test):  # sample fast parameters for testing
+                        weight.fast.append(reparameterize(weight.mu, weight.logvar))
                 else:
                     weight.fast.append(weight.mu)  # return expected value
-
-            # if train_stage:
-            #     for _ in range(self.weight_set_num_train):  # sample fast parameters for training
-            #         if self.hm_use_class_batch_input:
-            #
-            #
-            #             y = torch.normal(0, 1, size=(*weight.mu.shape, 2)).to(weight.mu)
-            #             weights, loss = self.flow(weight.mu, y)
-            #             weight.fast.append(weights)     # weights: (5,64)
-            #             weight.loss_flow.append(loss)
-            #         else:
-            #             warnings.warn("Use hm_use_class_batch_input for flow support. "
-            #                           "Sampling weight from N(weight.mu, weight.sigma) instead")
-            #             weight.fast.append(reparameterize(weight.mu, weight.logvar))
-            #
-            # else:
-            #     if self.weight_set_num_test is not None:
-            #         for _ in range(self.weight_set_num_test):  # sample fast parameters for testing
-            #             if self.hm_use_class_batch_input:
-            #                 y = torch.normal(0, 1, size=(*weight.mu.shape, 2)).to(weight.mu)
-            #                 weights, loss = self.flow(weight.mu, y)
-            #                 weight.fast.append(weights)  # weights: (5,64)
-            #                 weight.loss_flow.append(loss)
-            #             else:
-            #                 warnings.warn("Use hm_use_class_batch_input for flow support. "
-            #                               "Sampling weight from N(weight.mu, weight.sigma) instead")
-            #                 weight.fast.append(reparameterize(weight.mu, weight.logvar))
-            #     else:
-            #         weight.fast.append(weight.mu)  # return expected value
 
     def _scale_step(self):
         """calculate regularization step for kld"""
@@ -283,18 +197,18 @@ class BayesHMAML(HyperMAML):
                     self.hm_maml_warmup_switch_epochs + 1)
         return 0.0
 
+
     def _update_network_weights(self, delta_params_list, support_embeddings, support_data_labels, train_stage=False):
         if self.hm_maml_warmup and not self.single_test:
             p = self._get_p_value()
             # warmup coef p decreases 1 -> 0
             if p > 0.0:
                 fast_parameters = []
+
                 clf_fast_parameters = list(self.classifier.parameters())
                 for weight in self.classifier.parameters():
                     weight.fast = None
                     weight.mu = None
-                    weight.loss_flow = None
-
                     # weight.logvar = None
                 self.classifier.zero_grad()
                 fast_parameters = fast_parameters + clf_fast_parameters
@@ -304,17 +218,14 @@ class BayesHMAML(HyperMAML):
 
                     set_loss = self.loss_fn(scores, support_data_labels)
                     reduction = self.kl_scale
-                    if not self.hm_use_class_batch_input:
-                        for weight in self.classifier.parameters():
-                            if weight.logvar is not None:
-                                if weight.mu is not None:
-                                    set_loss = set_loss + reduction * self.loss_kld(weight.mu, weight.logvar)
-                                else:
-                                    set_loss = set_loss + reduction * self.loss_kld(weight, weight.logvar)
-                    else:
-                        for weight in self.classifier.parameters():
-                            if weight.loss_flow is not None:
-                                set_loss = set_loss + weight.loss_flow
+                    for weight in self.classifier.parameters():
+                        if weight.logvar is not None:
+                            if weight.mu is not None:
+                                # set_loss = set_loss + self.kl_w * reduction * self.loss_kld(weight.mu, weight.logvar)
+                                set_loss = set_loss + reduction * self.loss_kld(weight.mu, weight.logvar)
+                            else:
+                                # set_loss = set_loss + self.kl_w * reduction * self.loss_kld(weight, weight.logvar)
+                                set_loss = set_loss + reduction * self.loss_kld(weight, weight.logvar)
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
@@ -324,21 +235,11 @@ class BayesHMAML(HyperMAML):
                                 grad]  # do not calculate gradient of gradient if using first order approximation
 
                     if p == 1:
-                        joined_weight = []
-                        joined_update_value = []
-                        joined_logvar = []
                         # update weights of classifier network by adding gradient
                         for k, weight in enumerate(self.classifier.parameters()):
                             update_value = (self.train_lr * grad[k])
                             update_mean, logvar = delta_params_list[k]
-                            joined_weight.append(weight)
-                            joined_logvar.append(logvar)
-                            joined_update_value.append(update_value)
-
-                        joined_weight = torch.cat([joined_weight[0],joined_weight[-1].reshape(-1,1)],axis=1)
-                        joined_update_value = torch.cat([joined_update_value[0],joined_update_value[-1].reshape(-1,1)],axis=1)
-                        joined_logvar = torch.cat([joined_logvar[0],joined_logvar[-1].reshape(-1,1)],axis=1)
-                        self._update_weight(joined_weight, joined_update_value, joined_logvar, train_stage)
+                            self._update_weight(weight, update_value, logvar, train_stage)
 
                     elif 0.0 < p < 1.0:
                         # update weights of classifier network by adding gradient and output of hypernetwork
@@ -355,6 +256,7 @@ class BayesHMAML(HyperMAML):
             for k, weight in enumerate(self.classifier.parameters()):
                 update_mean, logvar = delta_params_list[k]
                 self._update_weight(weight, update_mean, logvar, train_stage)
+
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels):
         # if not maml_warmup_used:
@@ -398,19 +300,16 @@ class BayesHMAML(HyperMAML):
         reduction = self.kl_scale
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        loss_kld = torch.zeros_like(loss_ce)
-        loss_flow = torch.zeros_like(loss_ce)
-        if not self.hm_use_class_batch_input:
-            for name, weight in self.classifier.named_parameters():
-                if weight.mu is not None and weight.logvar is not None:
-                    val = self.loss_kld(weight.mu, weight.logvar)
-                    loss_kld = loss_kld + reduction * val
-        else:
-            for name, weight in self.classifier.named_parameters():
-                if weight.loss_flow is not None:
-                    loss_flow = loss_flow + weight.loss_flow
 
-        loss = loss_ce + loss_kld + loss_flow
+        loss_kld = torch.zeros_like(loss_ce)
+
+        for name, weight in self.classifier.named_parameters():
+            if weight.mu is not None and weight.logvar is not None:
+                val = self.loss_kld(weight.mu, weight.logvar)
+                # loss_kld = loss_kld + self.kl_w * reduction * val
+                loss_kld = loss_kld + reduction * val
+
+        loss = loss_ce + loss_kld
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -423,6 +322,7 @@ class BayesHMAML(HyperMAML):
 
         return loss, loss_ce, loss_kld, task_accuracy
 
+
     def set_forward_loss_with_adaptation(self, x):
         """returns loss and accuracy from adapted model (copy)"""
         scores, _ = self.set_forward(x, is_feature=False, train_stage=False)  # scores from adapted copy
@@ -434,18 +334,12 @@ class BayesHMAML(HyperMAML):
 
         loss_kld = torch.zeros_like(loss_ce)
 
-        loss_flow = torch.zeros_like(loss_ce)
-        if not self.hm_use_class_batch_input:
-            for name, weight in self.classifier.named_parameters():
-                if weight.mu is not None and weight.logvar is not None:
-                    # loss_kld = loss_kld + self.kl_w * reduction * self.loss_kld(weight.mu, weight.logvar)
-                    loss_kld = loss_kld + reduction * self.loss_kld(weight.mu, weight.logvar)
-        else:
-            for name, weight in self.classifier.named_parameters():
-                if weight.loss_flow is not None:
-                    loss_flow = loss_flow + weight.loss_flow
+        for name, weight in self.classifier.named_parameters():
+            if weight.mu is not None and weight.logvar is not None:
+                # loss_kld = loss_kld + self.kl_w * reduction * self.loss_kld(weight.mu, weight.logvar)
+                loss_kld = loss_kld + reduction * self.loss_kld(weight.mu, weight.logvar)
 
-        loss = loss_ce + loss_kld + loss_flow
+        loss = loss_ce + loss_kld
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
@@ -454,6 +348,7 @@ class BayesHMAML(HyperMAML):
         task_accuracy = (top1_correct / len(support_data_labels)) * 100
 
         return loss, task_accuracy
+
 
     def train_loop(self, epoch, train_loader, optimizer):  # overwrite parrent function
         print_freq = 10

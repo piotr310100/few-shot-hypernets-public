@@ -2,11 +2,12 @@ import torch
 import numpy as np
 from torch import optim
 from torch import nn
-# from ..models.flow import get_latent_cnf
-from regressionFlow.models.flow import get_hyper_cnf
-from regressionFlow.utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
 from torch.nn import init
 from torch.distributions.laplace import Laplace
+# from ..models.flow import get_latent_cnf
+
+from regressionFlow.models.flow import get_hyper_cnf
+from regressionFlow.utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, padding=None):
     if padding is None:
@@ -125,28 +126,24 @@ class HyperRegression(nn.Module):
             return optimizer
         opt = _get_opt_(list(self.hyper.parameters()) + list(self.point_cnf.parameters()))
         return opt
-    def forward(self, x, y):
-    # def forward(self, x, y, opt, step, writer=None):
-    #     x = x.new_zeros(5,64)
-        # opt.zero_grad()
+    def forward(self, x):
         batch_size = x.size(0)
+        # decode: 1) get target_network_weights
         target_networks_weights = self.hyper(x)
+        # 2) get gaussian sample "y"
+        y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
+        # 3) run y with target_networks_weights to get loss later
+        y = self.point_cnf(y, target_networks_weights, reverse=True).view(*y.size())
 
         # Loss
         y, delta_log_py = self.point_cnf(y, target_networks_weights, torch.zeros(batch_size, y.size(1), 1).to(y))
-        if self.logprob_type == "Laplace":
-            log_py = standard_laplace_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
-        if self.logprob_type == "Normal":
-            log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+
+        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
         delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
         log_px = log_py - delta_log_py
 
         loss = -log_px.mean()
-
-        # loss.backward()
-        # opt.step()
-        # recon = -log_px.sum()
-        # recon_nats = recon / float(y.size(0))
+        # print(target_networks_weights, loss)
         return target_networks_weights, loss
 
     @staticmethod
@@ -156,15 +153,6 @@ class HyperRegression(nn.Module):
         if truncate_std is not None:
             truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
         return y
-
-    @staticmethod
-    def sample_gaussian(size, truncate_std=None, gpu=None):
-        y = torch.randn(*size).float()
-        y = y if gpu is None else y.cuda(gpu)
-        if truncate_std is not None:
-            truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
-        return y
-
 
     @staticmethod
     def sample_laplace(size, gpu=None):
@@ -210,7 +198,7 @@ class HyperFlowNetwork(nn.Module):
 
         self.encoder = FlowNetS(input_width=input_width, input_height=input_height)
         output = []
-        self.n_out = 64
+        self.n_out = 65
         # self.n_out = 46080
         dims = tuple(map(int, args.dims.split("-")))
         for k in range(len(dims)):
