@@ -98,16 +98,16 @@ class FHyperMAML(MAML):
         self.flow = HyperRegression(self.flow_args)
 
         self.flow_step = None  # increase step for share of flow loss in total loss
-        self.flow_stop_val = params.flow_stop_val
+        self.flow_stop_val = 0.001
         self.flow_w = 0.01
+        self.flow_scale = 1e-24
 
     def _scale_step(self):
         """calculate regularization step for flow loss"""
         if self.flow_step is None:
-            # scale step is calculated so that share of kld in loss increases kl_scale -> kl_stop_val
-            self.flow_step = np.power(1 / self.kl_scale * self.flow_stop_val, 1 / self.stop_epoch)
+            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
 
-        self.kl_scale = self.kl_scale * self.flow_step
+        self.flow_scale = self.flow_scale * self.flow_step
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -273,7 +273,7 @@ class FHyperMAML(MAML):
                         flow_loss = torch.sum(flow_loss)
                     print(f"flow loss: {flow_loss}")
 
-                    reduction = self.kl_scale
+                    reduction = self.flow_scale
                     # append flow loss
                     # set_loss = loss_ce + self.flow_w * reduction * flow_loss
                     set_loss = loss_ce + self.flow_w * flow_loss
