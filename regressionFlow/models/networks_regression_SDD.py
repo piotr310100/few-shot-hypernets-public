@@ -5,7 +5,7 @@ from torch import nn
 from torch.nn import init
 from torch.distributions.laplace import Laplace
 # from ..models.flow import get_latent_cnf
-
+from scipy.stats import multivariate_normal
 from regressionFlow.models.flow import get_hyper_cnf
 from regressionFlow.utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
 
@@ -128,22 +128,28 @@ class HyperRegression(nn.Module):
         return opt
     def forward(self, x):
         batch_size = x.size(0)
-        # decode: 1) get target_network_weights
-        target_networks_weights = self.hyper(x)
-        # 2) get gaussian sample "y"
+        # 1) output z hypernetworka
+        hyper_network_output = x
+        # 2) wylosuj z_i
         y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
-        # 3) run y with target_networks_weights to get loss later
-        y = self.point_cnf(y, target_networks_weights, reverse=True).view(*y.size())
+        # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
+        target_networks_weights = self.point_cnf(y, hyper_network_output, reverse=True).view(*y.size())
 
         # Loss
-        y, delta_log_py = self.point_cnf(y, target_networks_weights, torch.zeros(batch_size, y.size(1), 1).to(y))
+        _, delta_log_py = self.point_cnf(target_networks_weights, hyper_network_output, torch.zeros(batch_size, y.size(1), 1).to(y))
 
         log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
         delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
         log_px = log_py - delta_log_py
-
+        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
         loss = -log_px.mean()
-        # print(target_networks_weights, loss)
+
+        # policzyc gestosci priora log N(w_i | (0,I))
+        loss_density = torch.tensor(multivariate_normal.pdf(target_networks_weights.flatten().cpu().detach().numpy(),
+                                                            np.zeros_like(target_networks_weights.flatten().cpu().
+                                                                          detach().numpy()))).to(loss)
+        loss = loss + loss_density
+
         return target_networks_weights, loss
 
     @staticmethod

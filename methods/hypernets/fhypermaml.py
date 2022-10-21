@@ -204,10 +204,10 @@ class FHyperMAML(MAML):
 
                 # todo flow
                 delta_params, loss_flow = self.flow(delta_params)
-                loss_density = torch.tensor(multivariate_normal.pdf(delta_params.flatten().cpu().detach().numpy(),
-                                                                    np.zeros_like(delta_params.flatten().cpu().
-                                                                                  detach().numpy()))).to(loss_flow)
-                loss_flow = loss_flow - loss_density
+                # loss_density = torch.tensor(multivariate_normal.pdf(delta_params.flatten().cpu().detach().numpy(),
+                #                                                     np.zeros_like(delta_params.flatten().cpu().
+                #                                                                   detach().numpy()))).to(loss_flow)
+                # loss_flow = loss_flow - loss_density
 
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
@@ -270,12 +270,14 @@ class FHyperMAML(MAML):
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
 
-                    print(f"flow loss: {flow_loss}")
 
-                    reduction = self.flow_scale
+                    # reduction = self.flow_scale
+                    print(f"flow loss: {flow_loss}")
+                    print(f"flow loss with flow_w: {self.flow_w * flow_loss}")
+
                     # append flow loss
-                    set_loss = loss_ce + self.flow_w * reduction * flow_loss
-                    # set_loss = loss_ce + self.flow_w * flow_loss
+                    # set_loss = loss_ce + self.flow_w * reduction * flow_loss
+                    set_loss = loss_ce + self.flow_w * flow_loss
                     # set_loss = loss_ce + flow_loss
 
 
@@ -370,9 +372,10 @@ class FHyperMAML(MAML):
         if self.hm_detach_feature_net:
             support_embeddings = support_embeddings.detach()
 
-        maml_warmup_used = (
-                (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
-        # maml_warmup_used = False
+        # maml_warmup_used = (
+        #         (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
+        # maml_warmup_used = self.epoch < 3
+        maml_warmup_used = False
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels)
