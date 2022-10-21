@@ -269,14 +269,13 @@ class FHyperMAML(MAML):
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
-                    if flow_loss.shape != loss_ce.shape:
-                        flow_loss = torch.sum(flow_loss)
+
                     print(f"flow loss: {flow_loss}")
 
                     reduction = self.flow_scale
                     # append flow loss
-                    # set_loss = loss_ce + self.flow_w * reduction * flow_loss
-                    set_loss = loss_ce + self.flow_w * flow_loss
+                    set_loss = loss_ce + self.flow_w * reduction * flow_loss
+                    # set_loss = loss_ce + self.flow_w * flow_loss
                     # set_loss = loss_ce + flow_loss
 
 
@@ -377,6 +376,8 @@ class FHyperMAML(MAML):
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels)
+        if not flow_loss.dim() == 0:
+            flow_loss = torch.sum(flow_loss)
 
         self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
 
@@ -453,7 +454,7 @@ class FHyperMAML(MAML):
 
             loss, task_accuracy, loss_flow = self.set_forward_loss(x)
             avg_loss = avg_loss + loss.item()  # .data[0]
-            flow_loss.append(loss_flow.cpu().detach().numpy())
+            flow_loss.append(loss_flow.item())
             loss_all.append(loss)
             acc_all.append(task_accuracy)
 
@@ -479,7 +480,7 @@ class FHyperMAML(MAML):
         flow_loss_mean = np.mean(flow_loss_all)
 
         metrics = {"accuracy/train": acc_mean}
-        metrics['flow_loss'] = float(flow_loss_mean)
+        metrics['flow_loss'] = flow_loss_mean
 
         if self.hn_adaptation_strategy == 'increasing_alpha':
             metrics['alpha'] = self.alpha
