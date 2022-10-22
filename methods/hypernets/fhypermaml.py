@@ -5,7 +5,6 @@ from time import time
 
 import numpy as np
 import torch
-from scipy.stats import multivariate_normal
 from torch import nn as nn
 from torch.autograd import Variable
 from torch.nn import functional as F
@@ -42,7 +41,8 @@ class FHyperMAML(MAML):
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
         self.hm_maml_warmup = params.hm_maml_warmup
-        self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
+        self.hm_maml_warmup = False
+        # self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
         self.hm_update_operator = params.hm_update_operator
@@ -71,7 +71,7 @@ class FHyperMAML(MAML):
         self._init_hypernet_modules(params)
         self._init_feature_net()
 
-        self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=2, dims='2-3-3',
+        self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=1, dims='3-4-2',
                                    latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
@@ -97,17 +97,20 @@ class FHyperMAML(MAML):
 
         self.flow = HyperRegression(self.flow_args)
 
-        self.flow_step = None  # increase step for share of flow loss in total loss
-        self.flow_stop_val = 0.001
         self.flow_w = 0.01
-        self.flow_scale = 1e-24
+        self.flow_scale = 1e-2
+        self.flow_stop_val = 1e-1
+        self.flow_step = 0
 
-    def _scale_step(self):
-        """calculate regularization step for flow loss"""
-        if self.flow_step is None:
-            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
+    def _scale_step(self, stop_epoch=None):
+        if stop_epoch is not None and self.flow_step == 0:
+            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / stop_epoch)
+        elif self.flow_step == 0:
+            return
 
-        self.flow_scale = self.flow_scale * self.flow_step
+        if self.flow_step != 0:
+            self.flow_scale = self.flow_scale * self.flow_step
+        # print(f"flow scale = {self.flow_scale}")
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -198,12 +201,13 @@ class FHyperMAML(MAML):
 
                 delta_params = param_net(support_embeddings_resh)
                 bias_neurons_num = self.target_net_param_shapes[name][0] // self.n_way
-
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
 
+                delta_params_shape = delta_params.shape
                 # todo flow
                 delta_params, loss_flow = self.flow(delta_params)
+                delta_params = delta_params.reshape(delta_params_shape)
                 # loss_density = torch.tensor(multivariate_normal.pdf(delta_params.flatten().cpu().detach().numpy(),
                 #                                                     np.zeros_like(delta_params.flatten().cpu().
                 #                                                                   detach().numpy()))).to(loss_flow)
@@ -245,6 +249,7 @@ class FHyperMAML(MAML):
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
+
         if self.hm_maml_warmup and not self.single_test:
             p = self._get_p_value()
 
@@ -271,14 +276,13 @@ class FHyperMAML(MAML):
                     flow_loss.to(loss_ce)
 
 
-                    # reduction = self.flow_scale
-                    print(f"flow loss: {flow_loss}")
-                    print(f"flow loss with flow_w: {self.flow_w * flow_loss}")
+                    reduction = self.flow_scale
+                    flow_loss = self.flow_w * reduction * flow_loss
+                    # flow_loss = self.flow_w * flow_loss
+                    # print(f"regularized flow loss: {flow_loss} / reduction {reduction} / flow_w {self.flow_w}")
 
                     # append flow loss
-                    # set_loss = loss_ce + self.flow_w * reduction * flow_loss
-                    set_loss = loss_ce + self.flow_w * flow_loss
-                    # set_loss = loss_ce + flow_loss
+                    set_loss = loss_ce + flow_loss
 
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
@@ -372,10 +376,10 @@ class FHyperMAML(MAML):
         if self.hm_detach_feature_net:
             support_embeddings = support_embeddings.detach()
 
-        # maml_warmup_used = (
-        #         (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
+        maml_warmup_used = (
+                (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
         # maml_warmup_used = self.epoch < 3
-        maml_warmup_used = False
+        # # maml_warmup_used = False
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels)
@@ -475,7 +479,7 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-            self._scale_step()
+            self._scale_step(self.stop_epoch)
 
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
