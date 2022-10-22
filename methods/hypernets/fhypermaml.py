@@ -98,19 +98,16 @@ class FHyperMAML(MAML):
         self.flow = HyperRegression(self.flow_args)
 
         self.flow_w = 0.01
-        self.flow_scale = 1e-2
+        self.flow_scale = 1e-24
         self.flow_stop_val = 1e-1
-        self.flow_step = 0
+        self.flow_step = None
 
     def _scale_step(self, stop_epoch=None):
-        if stop_epoch is not None and self.flow_step == 0:
-            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / stop_epoch)
-        elif self.flow_step == 0:
-            return
+        if self.flow_step is None:
+            # scale step is calculated so that share of kld in loss increases kl_scale -> kl_stop_val
+            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
 
-        if self.flow_step != 0:
-            self.flow_scale = self.flow_scale * self.flow_step
-        # print(f"flow scale = {self.flow_scale}")
+        self.flow_scale = self.flow_scale * self.flow_step
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -275,11 +272,10 @@ class FHyperMAML(MAML):
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
 
-
                     reduction = self.flow_scale
                     flow_loss = self.flow_w * reduction * flow_loss
                     # flow_loss = self.flow_w * flow_loss
-                    # print(f"regularized flow loss: {flow_loss} / reduction {reduction} / flow_w {self.flow_w}")
+                    print(f"regularized flow loss: {flow_loss} / reduction {reduction} / flow_w {self.flow_w}")
 
                     # append flow loss
                     set_loss = loss_ce + flow_loss
@@ -479,7 +475,7 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-            self._scale_step(self.stop_epoch)
+            self._scale_step()
 
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
