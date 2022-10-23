@@ -386,7 +386,7 @@ class FHyperMAML(MAML):
 
         if self.hm_set_forward_with_adaptation and not train_stage:
             scores = self.forward(support_data)
-            return scores, None
+            return scores, None, flow_loss
         else:
             if self.hm_support_set_loss and train_stage and not maml_warmup_used:
                 query_data = torch.cat((support_data, query_data))
@@ -412,7 +412,12 @@ class FHyperMAML(MAML):
             support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
-        loss = self.loss_fn(scores, query_data_labels)
+        loss_ce = self.loss_fn(scores, query_data_labels)
+        # weights = list(self.classifier.parameters())
+        #
+        # weights = torch.cat([weights[0], weights[1].reshape(-1, 1)], axis=1).to(weights[0])
+        # _, flow_loss = self.flow(weights)
+        loss = loss_ce + self.flow_scale * flow_loss
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -426,11 +431,11 @@ class FHyperMAML(MAML):
         return loss, task_accuracy, flow_loss
 
     def set_forward_loss_with_adaptation(self, x):
-        scores, *_ = self.set_forward(x, is_feature=False, train_stage=False)
+        scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
-        loss = self.loss_fn(scores, support_data_labels)
-
+        loss_ce = self.loss_fn(scores, support_data_labels)
+        loss = loss_ce + flow_loss
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
         y_labels = support_data_labels.cpu().numpy()
