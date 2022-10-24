@@ -202,13 +202,8 @@ class FHyperMAML(MAML):
                     delta_params = delta_params * self.alpha
 
                 delta_params_shape = delta_params.shape
-                # todo flow
                 delta_params, loss_flow = self.flow(delta_params)
                 delta_params = delta_params.reshape(delta_params_shape)
-                # loss_density = torch.tensor(multivariate_normal.pdf(delta_params.flatten().cpu().detach().numpy(),
-                #                                                     np.zeros_like(delta_params.flatten().cpu().
-                #                                                                   detach().numpy()))).to(loss_flow)
-                # loss_flow = loss_flow - loss_density
 
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
@@ -272,13 +267,8 @@ class FHyperMAML(MAML):
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
 
-                    reduction = self.flow_scale
-                    flow_loss = self.flow_w * reduction * flow_loss
-                    # flow_loss = self.flow_w * flow_loss
-                    print(f"regularized flow loss: {flow_loss} / reduction {reduction} / flow_w {self.flow_w}")
-
                     # append flow loss
-                    set_loss = loss_ce + flow_loss
+                    set_loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
 
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
@@ -413,11 +403,7 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        # weights = list(self.classifier.parameters())
-        #
-        # weights = torch.cat([weights[0], weights[1].reshape(-1, 1)], axis=1).to(weights[0])
-        # _, flow_loss = self.flow(weights)
-        loss = loss_ce + self.flow_scale * flow_loss
+        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -435,7 +421,7 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        loss = loss_ce + flow_loss
+        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
         y_labels = support_data_labels.cpu().numpy()
@@ -450,6 +436,7 @@ class FHyperMAML(MAML):
         task_count = 0
         loss_all = []
         flow_loss = []
+        flow_loss_scaled = []
         acc_all = []
         optimizer.zero_grad()
 
@@ -463,6 +450,7 @@ class FHyperMAML(MAML):
             loss, task_accuracy, loss_flow = self.set_forward_loss(x)
             avg_loss = avg_loss + loss.item()  # .data[0]
             flow_loss.append(loss_flow.item())
+            flow_loss_scaled.append(loss_flow.item() * self.flow_scale * self.flow_w)
             loss_all.append(loss)
             acc_all.append(task_accuracy)
 
@@ -484,11 +472,16 @@ class FHyperMAML(MAML):
 
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
+
         flow_loss_all = np.asarray(flow_loss)
         flow_loss_mean = np.mean(flow_loss_all)
 
+        flow_loss_scaled_all = np.asarray(flow_loss_scaled)
+        flow_loss_scaled_mean = np.mean(flow_loss_scaled_all)
+
         metrics = {"accuracy/train": acc_mean}
         metrics['flow_loss'] = flow_loss_mean
+        metrics['flow_loss_scaled'] = flow_loss_scaled_mean
 
         if self.hn_adaptation_strategy == 'increasing_alpha':
             metrics['alpha'] = self.alpha
