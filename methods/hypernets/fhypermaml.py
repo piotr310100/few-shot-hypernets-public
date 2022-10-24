@@ -40,9 +40,8 @@ class FHyperMAML(MAML):
         self.hm_use_class_batch_input = params.hm_use_class_batch_input
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
-        self.hm_maml_warmup = params.hm_maml_warmup
-        self.hm_maml_warmup = False
-        # self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
+        self.hm_maml_warmup = params.flow_warmup
+        self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
         self.hm_update_operator = params.hm_update_operator
@@ -97,17 +96,23 @@ class FHyperMAML(MAML):
 
         self.flow = HyperRegression(self.flow_args)
 
-        self.flow_w = 0.01
-        self.flow_scale = 1e-24
-        self.flow_stop_val = 1e-3
-        self.flow_step = None
+        # args for scaling flow loss only
+        self.flow_w = params.flow_w
+        self.do_scale = params.do_scale
+        if self.do_scale:
+            self.flow_scale = params.flow_scale
+            self.flow_stop_val = params.flow_stop_val
+            self.flow_step = None
+        else:
+            self.flow_scale = 1
 
     def _scale_step(self):
-        if self.flow_step is None:
-            # scale step is calculated so that share of kld in loss increases kl_scale -> kl_stop_val
-            self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
+        if self.do_scale:
+            if self.flow_step is None:
+                # scale step is calculated so that share of kld in loss increases kl_scale -> kl_stop_val
+                self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
 
-        self.flow_scale = self.flow_scale * self.flow_step
+            self.flow_scale = self.flow_scale * self.flow_step
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -405,6 +410,7 @@ class FHyperMAML(MAML):
         loss_ce = self.loss_fn(scores, query_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
 
+
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
 
@@ -422,6 +428,7 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, support_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
         y_labels = support_data_labels.cpu().numpy()
