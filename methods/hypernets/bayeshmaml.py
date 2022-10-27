@@ -288,10 +288,6 @@ class BayesHMAML(HyperMAML):
     def set_forward_loss(self, x):
         """Adapt and forward using x. Return scores and total losses"""
         scores, total_delta_sum = self.set_forward(x, is_feature=False, train_stage=True)
-
-        # calc_sigma = calc_sigma and (self.epoch == self.stop_epoch - 1 or self.epoch % 100 == 0)
-        # sigma, mu = self._mu_sigma(calc_sigma)
-
         query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query))).cuda()
         if self.hm_support_set_loss:
             support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()

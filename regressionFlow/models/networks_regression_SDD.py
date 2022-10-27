@@ -143,11 +143,11 @@ class HyperRegression(nn.Module):
         log_px = log_py - delta_log_py
         # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
         loss = log_px.mean()
-
         # policzyc gestosci priora log N(w_i | (0,I))
-        loss_density = torch.tensor(multivariate_normal.pdf(target_networks_weights.flatten().cpu().detach().numpy(),
-                                                            np.zeros_like(target_networks_weights.flatten().cpu().
-                                                                          detach().numpy()))).to(loss)
+        size_multivariate = target_networks_weights.flatten().size()[0]
+        multivariate_normal_distrib = torch.distributions.MultivariateNormal(
+            torch.zeros_like(target_networks_weights.flatten()).to(loss), torch.eye(size_multivariate).to(loss))
+        loss_density = multivariate_normal_distrib.log_prob(target_networks_weights.flatten())
         loss = loss - loss_density
 
         return target_networks_weights, loss
