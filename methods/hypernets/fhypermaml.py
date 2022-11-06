@@ -278,7 +278,6 @@ class FHyperMAML(MAML):
                     # append flow loss
                     set_loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
 
-
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
 
@@ -395,15 +394,15 @@ class FHyperMAML(MAML):
             if self.hm_lambda != 0:
                 total_delta_sum = sum([delta_params.pow(2.0).sum() for delta_params in delta_params_list])
 
-                return scores, total_delta_sum, flow_loss
+                return scores, total_delta_sum, flow_loss, delta_params_list
             else:
-                return scores, None, flow_loss
+                return scores, None, flow_loss, delta_params_list
 
     def set_forward_adaptation(self, x, is_feature=False):  # overwrite parrent function
         raise ValueError('MAML performs further adapation simply by increasing task_upate_num')
 
     def set_forward_loss(self, x):
-        scores, total_delta_sum, flow_loss = self.set_forward(x, is_feature=False, train_stage=True)
+        scores, total_delta_sum, flow_loss, flow_output = self.set_forward(x, is_feature=False, train_stage=True)
         query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query))).cuda()
 
         if self.hm_support_set_loss:
@@ -412,7 +411,6 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, query_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
-
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -423,10 +421,10 @@ class FHyperMAML(MAML):
         top1_correct = np.sum(topk_ind == y_labels)
         task_accuracy = (top1_correct / len(query_data_labels)) * 100
 
-        return loss, task_accuracy, flow_loss
+        return loss, task_accuracy, flow_loss, flow_output
 
     def set_forward_loss_with_adaptation(self, x):
-        scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
+        scores, _, flow_loss, __ = self.set_forward(x, is_feature=False, train_stage=False)
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
@@ -449,7 +447,7 @@ class FHyperMAML(MAML):
         flow_loss_scaled = []
         acc_all = []
         optimizer.zero_grad()
-
+        flow_output_all = []
         self.delta_list = []
 
         # train
@@ -457,7 +455,8 @@ class FHyperMAML(MAML):
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
-            loss, task_accuracy, loss_flow = self.set_forward_loss(x)
+            loss, task_accuracy, loss_flow, flow_output = self.set_forward_loss(x)
+            flow_output_all.append(flow_output)
             avg_loss = avg_loss + loss.item()  # .data[0]
             flow_loss.append(loss_flow.item())
             flow_loss_scaled.append(loss_flow.item() * self.flow_scale * self.flow_w)
@@ -503,7 +502,7 @@ class FHyperMAML(MAML):
         if self.alpha < 1:
             self.alpha += self.hn_alpha_step
 
-        return metrics
+        return metrics, flow_output_all
 
     def test_loop(self, test_loader, return_std=False, return_time: bool = False):  # overwrite parrent function
 

@@ -12,6 +12,8 @@ import torch.optim
 import torch.optim.lr_scheduler as lr_scheduler
 import os
 
+from sklearn.decomposition import PCA
+
 import configs
 import backbone
 from data.datamgr import SimpleDataManager, SetDataManager
@@ -120,8 +122,22 @@ def train(base_loader, val_loader, model, optimization, start_epoch, stop_epoch,
         model.stop_epoch = stop_epoch
 
         model.train()
-        if params.method in ['hyper_maml', 'bayes_hmaml', 'fhyper_maml']:
-            metrics = model.train_loop(epoch, base_loader, optimizer)
+        if params.method == 'fhyper_maml':
+            metrics, flow_output_all = model.train_loop(epoch, base_loader, optimizer)
+            if neptune_run is not None and epoch < start_epoch + 20:
+                if flow_output_all is not None:
+                    for i, flow_output in enumerate(flow_output_all):
+                        if i % 10 == 0:
+                            # print(flow_output[0].shape,flow_output[1].shape)
+                            flow_output[1] = flow_output[1].reshape(5,1)
+                            data = torch.cat((flow_output[0].cpu().detach(), flow_output[1].cpu().detach()), dim=1)
+                            X = data.cpu().detach().numpy().reshape(65, 5)
+                            pca = PCA(n_components=2)
+                            X_r = pca.fit(X).transform(X)
+                            fig = plt.figure()
+                            plt.plot(X_r[:, 0], X_r[:, 1], ".")
+                            neptune_run[f"flow_output_weights @ epoch_{epoch} / {i} / pca"].upload(File.as_image(fig))
+                            plt.close(fig)
         else:
             metrics = model.train_loop(epoch, base_loader,
                                        optimizer)  # model are called by reference, no need to return
