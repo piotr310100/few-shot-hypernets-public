@@ -18,7 +18,7 @@ from methods.hypernets.hypermaml import HyperNet
 
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
-    def __init__(self, model_func, n_way, n_support, n_query, flow_model, params=None, approx=False):
+    def __init__(self, model_func, n_way, n_support, n_query, params=None, approx=False):
         super(FHyperMAML, self).__init__(model_func, n_way, n_support, n_query, params=params)
         self.loss_fn = nn.CrossEntropyLoss()
 
@@ -94,7 +94,7 @@ class FHyperMAML(MAML):
                                    num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
                                    use_div_approx_train=False, use_div_approx_test=False)
 
-        self.flow = flow_model
+        self.flow = HyperRegression(self.flow_args)
 
         # args for scaling flow loss only
         self.flow_w = params.flow_w

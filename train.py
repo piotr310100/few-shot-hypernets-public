@@ -3,7 +3,7 @@ import sys
 from collections import defaultdict
 from typing import Type, List, Union, Dict, Optional
 from copy import deepcopy
-from regressionFlow.models.networks_regression_SDD import HyperRegression
+
 import numpy as np
 import torch
 import random
@@ -35,31 +35,6 @@ from pathlib import Path
 
 from save_features import do_save_fts
 from test import perform_test
-import argparse
-
-flow_args = argparse.Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=1, dims='3-4-2',
-                                   latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
-                                   layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
-                                   use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
-                                   sync_bn=False, bn_lag=0, root_dir=None, use_latent_flow=False,
-                                   use_deterministic_encoder=False,
-                                   zdim=1, optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
-                                   beta2=0.999, momentum=0.9, weight_decay=1e-05, epochs=1000, seed=694754,
-                                   recon_weight=1.0, prior_weight=1.0, entropy_weight=1.0, scheduler='linear',
-                                   exp_decay=1.0, exp_decay_freq=1, image_size='28x28', data_dir='data/SDD/',
-                                   dataset_type='shapenet15k', cates=['airplane'],
-                                   mn40_data_dir='data/ModelNet40.PC15k',
-                                   mn10_data_dir='data/ModelNet10.PC15k', dataset_scale=1.0, random_rotate=False,
-                                   normalize_per_shape=False, normalize_std_per_axis=False, tr_max_sample_points=2048,
-                                   te_max_sample_points=2048, num_workers=4, use_all_data=False,
-                                   log_name='experiment_regression_flow_toy', viz_freq=1, val_freq=10, log_freq=1,
-                                   save_freq=5, no_validation=False, save_val_results=False, eval_classification=False,
-                                   no_eval_sampling=False, max_validate_shapes=None, resume_checkpoint=None,
-                                   resume_optimizer=False, resume_non_strict=False, resume_dataset_mean=None,
-                                   resume_dataset_std=None, world_size=1, dist_url='tcp://127.0.0.1:9991',
-                                   dist_backend='nccl', distributed=False, rank=0, gpu=0, evaluate_recon=False,
-                                   num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
-                                   use_div_approx_train=False, use_div_approx_test=False)
 
 
 def _set_seed(seed, verbose=True):
@@ -76,28 +51,15 @@ def _set_seed(seed, verbose=True):
         if (verbose): print("[INFO] Setting SEED: None")
 
 
-
-
-flow = HyperRegression(flow_args)
-
 def train(base_loader, val_loader, model, optimization, start_epoch, stop_epoch, params, *,
           neptune_run: Optional[Run] = None):
     print("Tot epochs: " + str(stop_epoch))
-    if params.method == 'fhypermaml':
-
-        if optimization == 'adam':
-            optimizer = torch.optim.Adam(list(model.parameters()) + list(flow.point_cnf.parameters()), lr=params.lr)
-        elif optimization == "sgd":
-            optimizer = torch.optim.SGD(list(model.parameters()) + list(flow.point_cnf.parameters()), lr=params.lr)
-        else:
-            raise ValueError(f'Unknown optimization {optimization}, please define by yourself')
+    if optimization == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=params.lr)
+    elif optimization == "sgd":
+        optimizer = torch.optim.SGD(model.parameters(), lr=params.lr)
     else:
-        if optimization == 'adam':
-            optimizer = torch.optim.Adam(model.parameters(), lr=params.lr)
-        elif optimization == "sgd":
-            optimizer = torch.optim.SGD(model.parameters(), lr=params.lr)
-        else:
-            raise ValueError(f'Unknown optimization {optimization}, please define by yourself')
+        raise ValueError(f'Unknown optimization {optimization}, please define by yourself')
 
     max_acc = 0
     max_train_acc = 0
@@ -435,7 +397,7 @@ if __name__ == '__main__':
                                   **train_few_shot_params)
             else:
                 model = FHyperMAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
-                                   **train_few_shot_params, flow_model=flow)
+                                   **train_few_shot_params)
             if params.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
                 model.n_task = 32
                 model.task_update_num = 1
