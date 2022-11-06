@@ -213,8 +213,11 @@ class FHyperMAML(MAML):
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
-
-            return delta_params_list, loss_flow
+            if self.epoch < 2:
+                print(f'flow with norm loss at epoch {self.epoch}')
+                return delta_params_list, loss_flow
+            else:
+                return delta_params_list, torch.zeros_like(loss_flow)
 
         else:
             raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")

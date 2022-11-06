@@ -135,20 +135,22 @@ class HyperRegression(nn.Module):
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         target_networks_weights = self.point_cnf(y, hyper_network_output, reverse=True).view(*y.size())
 
-        # Loss
-        _, delta_log_py = self.point_cnf(target_networks_weights, hyper_network_output, torch.zeros(batch_size, y.size(1), 1).to(y))
+        # # Loss
+        # _, delta_log_py = self.point_cnf(target_networks_weights, hyper_network_output, torch.zeros(batch_size, y.size(1), 1).to(y))
+        #
+        # log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+        # delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
+        # log_px = log_py - delta_log_py
+        # # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+        # loss = log_px.mean()
+        # # policzyc gestosci priora log N(w_i | (0,I))
+        # size_multivariate = target_networks_weights.flatten().size()[0]
+        # multivariate_normal_distrib = torch.distributions.MultivariateNormal(
+        #     torch.zeros_like(target_networks_weights.flatten()).to(loss), torch.eye(size_multivariate).to(loss))
+        # loss_density = multivariate_normal_distrib.log_prob(target_networks_weights.flatten())
+        # loss = loss - loss_density
 
-        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
-        delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
-        log_px = log_py - delta_log_py
-        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-        loss = log_px.mean()
-        # policzyc gestosci priora log N(w_i | (0,I))
-        size_multivariate = target_networks_weights.flatten().size()[0]
-        multivariate_normal_distrib = torch.distributions.MultivariateNormal(
-            torch.zeros_like(target_networks_weights.flatten()).to(loss), torch.eye(size_multivariate).to(loss))
-        loss_density = multivariate_normal_distrib.log_prob(target_networks_weights.flatten())
-        loss = loss - loss_density
+        loss = torch.norm(target_networks_weights)
 
         return target_networks_weights, loss
 
