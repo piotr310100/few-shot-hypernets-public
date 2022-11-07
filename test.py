@@ -207,7 +207,7 @@ def single_test(params):
         model.eval()
         model.single_test = True
 
-        if isinstance(model, (MAML, BayesHMAML, HyperMAML)):
+        if isinstance(model, (MAML, BayesHMAML, HyperMAML, FHyperMAML)):
             acc_mean, acc_std, eval_time, *_ = model.test_loop( novel_loader, return_std = True, return_time=True)
         else:
             acc_mean, acc_std, *_ = model.test_loop( novel_loader, return_std = True)
