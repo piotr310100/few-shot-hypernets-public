@@ -215,8 +215,8 @@ class FHyperMAML(MAML):
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
-            if self.epoch < self.stop_norm_epoch:
-                print(f'flow with norm loss at epoch {self.epoch}')
+            if self.epoch <= self.stop_norm_epoch:
+                # print(f'flow with norm loss at epoch {self.epoch}')
                 return delta_params_list, loss_flow
             else:
                 return delta_params_list, torch.zeros_like(loss_flow)
@@ -439,7 +439,14 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        loss = loss_ce
+        if self.epoch > self.stop_norm_epoch:
+            # no flow loss after warmup
+            loss = loss_ce
+        else:
+            flow_loss.to(loss_ce)
+            # we want to narrow flow output close to 0 during short warmup
+            loss = self.flow_w * self.flow_scale * flow_loss
+
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
