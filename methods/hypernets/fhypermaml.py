@@ -415,7 +415,13 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+        if self.epoch > self.stop_norm_epoch:
+            # no flow loss after warmup
+            loss = loss_ce
+        else:
+            flow_loss.to(loss_ce)
+            # we want to narrow flow output close to 0 during short warmup
+            loss = self.flow_w * self.flow_scale * flow_loss
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -433,7 +439,13 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+        if self.epoch > self.stop_norm_epoch:
+            # no flow loss after warmup
+            loss = loss_ce
+        else:
+            flow_loss.to(loss_ce)
+            # we want to narrow flow output close to 0 during short warmup
+            loss = self.flow_w * self.flow_scale * flow_loss
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
