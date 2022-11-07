@@ -95,6 +95,8 @@ class FHyperMAML(MAML):
                                    use_div_approx_train=False, use_div_approx_test=False)
 
         self.flow = HyperRegression(self.flow_args)
+        self.stop_norm_epoch = 2    # short warmup to narrow weight values
+
 
         # args for scaling flow loss only
         self.flow_w = params.flow_w
@@ -273,10 +275,13 @@ class FHyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
-                    flow_loss.to(loss_ce)
-
-                    # append flow loss
-                    set_loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+                    if self.epoch > self.stop_norm_epoch:
+                        # no flow loss after warmup
+                        set_loss = loss_ce
+                    else:
+                        flow_loss.to(loss_ce)
+                        # we want to narrow flow output close to 0 during short warmup
+                        set_loss = self.flow_w * self.flow_scale * flow_loss
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
