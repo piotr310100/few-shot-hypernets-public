@@ -215,7 +215,7 @@ class FHyperMAML(MAML):
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
-            if self.epoch < 2:
+            if self.epoch < self.stop_norm_epoch:
                 print(f'flow with norm loss at epoch {self.epoch}')
                 return delta_params_list, loss_flow
             else:
