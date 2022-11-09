@@ -195,6 +195,7 @@ class FHyperMAML(MAML):
         if self.hm_use_class_batch_input:
             delta_params_list = []
 
+            total_loss_flow = None
             for name, param_net in self.hypernet_heads.items():
 
                 support_embeddings_resh = support_embeddings.reshape(
@@ -208,13 +209,17 @@ class FHyperMAML(MAML):
 
                 delta_params_shape = delta_params.shape
                 delta_params, loss_flow = self.flow(delta_params)
+                if total_loss_flow is None:
+                    total_loss_flow = loss_flow
+                else:
+                    total_loss_flow = total_loss_flow + loss_flow
                 delta_params = delta_params.reshape(delta_params_shape)
 
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
 
-            return delta_params_list, loss_flow
+            return delta_params_list, total_loss_flow
 
         else:
             raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")
@@ -274,7 +279,6 @@ class FHyperMAML(MAML):
 
                     # append flow loss
                     set_loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
-
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
@@ -409,7 +413,6 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, query_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
-
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
