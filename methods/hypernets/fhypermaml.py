@@ -196,7 +196,7 @@ class FHyperMAML(MAML):
 
         if self.hm_use_class_batch_input:
             delta_params_list = []
-
+            total_loss_flow = None
             for name, param_net in self.hypernet_heads.items():
 
                 support_embeddings_resh = support_embeddings.reshape(
@@ -211,15 +211,19 @@ class FHyperMAML(MAML):
                 delta_params_shape = delta_params.shape
                 delta_params, loss_flow = self.flow(delta_params)
                 delta_params = delta_params.reshape(delta_params_shape)
+                if total_loss_flow is None:
+                    total_loss_flow = loss_flow
+                else:
+                    total_loss_flow = total_loss_flow + loss_flow
 
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
             if self.epoch <= self.stop_norm_epoch:
                 # print(f'flow with norm loss at epoch {self.epoch}')
-                return delta_params_list, loss_flow
+                return delta_params_list, total_loss_flow
             else:
-                return delta_params_list, torch.zeros_like(loss_flow)
+                return delta_params_list, torch.zeros_like(total_loss_flow)
 
         else:
             raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")
