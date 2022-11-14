@@ -351,8 +351,10 @@ if __name__ == '__main__':
 
     elif params.method in ['DKT', 'protonet', 'matchingnet', 'relationnet', 'relationnet_softmax', 'maml',
                            'maml_approx', 'hyper_maml', 'bayes_hmaml', 'fhyper_maml'] + list(hypernet_types.keys()):
-        n_query = max(1, int(
-            16 * params.test_n_way / params.train_n_way))  # if test_n_way is smaller than train_n_way, reduce n_query to keep batch size small
+
+        # n_query = max(1, int(
+        #     16 * params.test_n_way / params.train_n_way))  # if test_n_way is smaller than train_n_way, reduce n_query to keep batch size small
+        n_query = 10
         print("n_query", n_query)
         train_few_shot_params = dict(n_way=params.train_n_way, n_support=params.n_shot, n_query=n_query)
         base_datamgr = SetDataManager(image_size, **train_few_shot_params)  # n_eposide=100

@@ -72,6 +72,7 @@ class SetDataManager(DataManager):
         super(SetDataManager, self).__init__()
         self.image_size = image_size
         self.n_way = n_way
+        # oryginalnie n_support = 1, n_query = 16, chcemy zmniejszac n_query i zobaczyc co sie stanie
         self.batch_size = n_support + n_query
         self.n_eposide = n_eposide
 

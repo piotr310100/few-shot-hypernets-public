@@ -9,33 +9,37 @@ from scipy.stats import multivariate_normal
 from regressionFlow.models.flow import get_hyper_cnf
 from regressionFlow.utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
 
+
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, padding=None):
     if padding is None:
-        padding_inside = (kernel_size-1)//2
+        padding_inside = (kernel_size - 1) // 2
     else:
         padding_inside = padding
     if batchNorm:
         return nn.Sequential(
-            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding_inside, bias=False),
+            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding_inside,
+                      bias=False),
             nn.BatchNorm2d(out_planes),
             nn.LeakyReLU(0.1, inplace=True)
         )
     else:
         return nn.Sequential(
             nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding_inside, bias=True),
-            nn.LeakyReLU(0.1,inplace=True)
+            nn.LeakyReLU(0.1, inplace=True)
         )
 
 
-def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias = True):
+def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias=True):
     if batchNorm:
         return nn.Sequential(
-            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size-1)//2, bias=bias),
+            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
+                      bias=bias),
             nn.BatchNorm2d(out_planes),
         )
     else:
         return nn.Sequential(
-            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size-1)//2, bias=bias),
+            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
+                      bias=bias),
         )
 
 
@@ -46,7 +50,7 @@ def predict_flow(in_planes):
 def deconv(in_planes, out_planes):
     return nn.Sequential(
         nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=True),
-        nn.LeakyReLU(0.1,inplace=True)
+        nn.LeakyReLU(0.1, inplace=True)
     )
 
 
@@ -56,6 +60,7 @@ class tofp16(nn.Module):
 
     def forward(self, input):
         return input.half()
+
 
 class tofp32(nn.Module):
     def __init__(self):
@@ -68,7 +73,7 @@ class tofp32(nn.Module):
 def init_deconv_bilinear(weight):
     f_shape = weight.size()
     heigh, width = f_shape[-2], f_shape[-1]
-    f = np.ceil(width/2.0)
+    f = np.ceil(width / 2.0)
     c = (2 * f - 1 - f % 2) / (2.0 * f)
     bilinear = np.zeros([heigh, width])
     for x in range(width):
@@ -78,7 +83,7 @@ def init_deconv_bilinear(weight):
     weight.data.fill_(0.)
     for i in range(f_shape[0]):
         for j in range(f_shape[1]):
-            weight.data[i,j,:,:] = torch.from_numpy(bilinear)
+            weight.data[i, j, :, :] = torch.from_numpy(bilinear)
 
 
 class ListModule(nn.Module):
@@ -124,33 +129,40 @@ class HyperRegression(nn.Module):
             else:
                 assert 0, "args.optimizer should be either 'adam' or 'sgd'"
             return optimizer
+
         opt = _get_opt_(list(self.hyper.parameters()) + list(self.point_cnf.parameters()))
         return opt
+
     def forward(self, x):
         batch_size = x.size(0)
         # 1) output z hypernetworka
-        hyper_network_output = x
+        # hyper_network_output = x
+        hyper_network_output = self.hyper(x)
         # 2) wylosuj z_i
-        y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
+        # y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)    # shape (5,65,1)
+
+        y = torch.zeros(*x.shape, self.input_dim).cuda(self.gpu)
+        # eksperyment: zamiast losowac za kazdym razem z rozkladu, bierzemy tensor zer
+
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         target_networks_weights = self.point_cnf(y, hyper_network_output, reverse=True).view(*y.size())
 
-        # # Loss
-        # _, delta_log_py = self.point_cnf(target_networks_weights, hyper_network_output, torch.zeros(batch_size, y.size(1), 1).to(y))
-        #
-        # log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
-        # delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
-        # log_px = log_py - delta_log_py
-        # # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-        # loss = log_px.mean()
-        # # policzyc gestosci priora log N(w_i | (0,I))
-        # size_multivariate = target_networks_weights.flatten().size()[0]
-        # multivariate_normal_distrib = torch.distributions.MultivariateNormal(
-        #     torch.zeros_like(target_networks_weights.flatten()).to(loss), torch.eye(size_multivariate).to(loss))
-        # loss_density = multivariate_normal_distrib.log_prob(target_networks_weights.flatten())
-        # loss = loss - loss_density
+        # Loss
+        _, delta_log_py = self.point_cnf(target_networks_weights, hyper_network_output,
+                                         torch.zeros(batch_size, y.size(1), 1).to(y))
 
-        loss = torch.norm(target_networks_weights)
+        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+        delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
+        log_px = log_py - delta_log_py
+        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+        loss = log_px.mean()
+        # policzyc gestosci priora log N(w_i | (0,I))
+        size_multivariate = target_networks_weights.flatten().size()[0]
+        multivariate_normal_distrib = torch.distributions.MultivariateNormal(
+            torch.zeros_like(target_networks_weights.flatten()).to(loss), torch.eye(size_multivariate).to(loss))
+        loss_density = multivariate_normal_distrib.log_prob(target_networks_weights.flatten())
+        loss = 0.01 * (loss - loss_density)
+        # loss = torch.norm(target_networks_weights)
 
         return target_networks_weights, loss
 
@@ -169,7 +181,6 @@ class HyperRegression(nn.Module):
         y = y if gpu is None else y.cuda(gpu)
         return y
 
-
     def decode(self, z, num_points):
         # transform points from the prior to a point cloud, conditioned on a shape code
         target_networks_weights = self.hyper(z)
@@ -185,7 +196,8 @@ class HyperRegression(nn.Module):
         target_networks_weights = self.hyper(x)
 
         # Loss
-        y, delta_log_py = self.point_cnf(y_in, target_networks_weights, torch.zeros(batch_size, y_in.size(1), 1).to(y_in))
+        y, delta_log_py = self.point_cnf(y_in, target_networks_weights,
+                                         torch.zeros(batch_size, y_in.size(1), 1).to(y_in))
         if self.logprob_type == "Laplace":
             log_py = standard_laplace_logprob(y)
         if self.logprob_type == "Normal":
@@ -197,8 +209,8 @@ class HyperRegression(nn.Module):
         delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
         log_px = log_py - delta_log_py
 
+        return log_py, log_px, (batch_log_py, batch_log_px)
 
-        return log_py, log_px, ( batch_log_py, batch_log_px)
 
 class HyperFlowNetwork(nn.Module):
     def __init__(self, args, input_width=320, input_height=576):
@@ -214,12 +226,12 @@ class HyperFlowNetwork(nn.Module):
                 output.append(nn.Linear(self.n_out, args.input_dim * dims[k], bias=True))
             else:
                 output.append(nn.Linear(self.n_out, dims[k - 1] * dims[k], bias=True))
-            #bias
+            # bias
             output.append(nn.Linear(self.n_out, dims[k], bias=True))
-            #scaling
+            # scaling
             output.append(nn.Linear(self.n_out, dims[k], bias=True))
             output.append(nn.Linear(self.n_out, dims[k], bias=True))
-            #shift
+            # shift
             output.append(nn.Linear(self.n_out, dims[k], bias=True))
 
         output.append(nn.Linear(self.n_out, dims[-1] * args.input_dim, bias=True))

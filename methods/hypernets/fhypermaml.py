@@ -40,7 +40,7 @@ class FHyperMAML(MAML):
         self.hm_use_class_batch_input = params.hm_use_class_batch_input
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
-        self.hm_maml_warmup = params.flow_warmup
+        self.hm_maml_warmup = False
         self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
@@ -95,7 +95,6 @@ class FHyperMAML(MAML):
                                    use_div_approx_train=False, use_div_approx_test=False)
 
         self.flow = HyperRegression(self.flow_args)
-        self.stop_norm_epoch = 2    # short warmup to narrow weight values
 
 
         # args for scaling flow loss only
@@ -219,10 +218,7 @@ class FHyperMAML(MAML):
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
-            if self.epoch <= self.stop_norm_epoch:
-                # print(f'flow with norm loss at epoch {self.epoch}')
-                return delta_params_list, total_loss_flow
-            else:
+
                 return delta_params_list, torch.zeros_like(total_loss_flow)
 
         else:
@@ -279,13 +275,7 @@ class FHyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
-                    if self.epoch > self.stop_norm_epoch:
-                        # no flow loss after warmup
-                        set_loss = loss_ce
-                    else:
-                        flow_loss.to(loss_ce)
-                        # we want to narrow flow output close to 0 during short warmup
-                        set_loss = self.flow_w * self.flow_scale * flow_loss
+                    set_loss = loss_ce
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
@@ -419,13 +409,7 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        if self.epoch > self.stop_norm_epoch:
-            # no flow loss after warmup
-            loss = loss_ce
-        else:
-            flow_loss.to(loss_ce)
-            # we want to narrow flow output close to 0 during short warmup
-            loss = self.flow_w * self.flow_scale * flow_loss
+        loss = loss_ce
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -443,14 +427,8 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        if self.epoch > self.stop_norm_epoch:
-            # no flow loss after warmup
-            loss = loss_ce
-        else:
-            flow_loss.to(loss_ce)
-            # we want to narrow flow output close to 0 during short warmup
-            loss = self.flow_w * self.flow_scale * flow_loss
 
+        loss = loss_ce
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
@@ -504,6 +482,7 @@ class FHyperMAML(MAML):
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
 
+
         flow_loss_all = np.asarray(flow_loss)
         flow_loss_mean = np.mean(flow_loss_all)
 
@@ -513,6 +492,8 @@ class FHyperMAML(MAML):
         metrics = {"accuracy/train": acc_mean}
         metrics['flow_loss'] = flow_loss_mean
         metrics['flow_loss_scaled'] = flow_loss_scaled_mean
+
+        metrics['loss'] = avg_loss / float(len(train_loader))
 
         if self.hn_adaptation_strategy == 'increasing_alpha':
             metrics['alpha'] = self.alpha
