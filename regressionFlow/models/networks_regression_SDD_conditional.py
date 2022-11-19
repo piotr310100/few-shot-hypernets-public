@@ -2,9 +2,9 @@ import torch
 import numpy as np
 from torch import optim
 from torch import nn
-from models.flow import get_point_cnf
-from models.flow import get_hyper_cnf
-from utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
+from .flow import get_point_cnf
+from .flow import get_hyper_cnf
+from ..utils import truncated_normal, standard_normal_logprob, standard_laplace_logprob
 from torch.nn import init
 from torch.distributions.laplace import Laplace
 
@@ -108,7 +108,7 @@ class CRegression(nn.Module):
     def __init__(self, args):
         super(CRegression, self).__init__()
         self.input_dim = args.input_dim
-        self.flownet = FlowNetS()
+        self.flownet = FlowNetS()   # TODO zadbac zeby flownet zwracal to co definiuje z_dim
         self.args = args
         self.point_cnf = get_point_cnf(args)
         self.gpu = args.gpu
@@ -127,50 +127,85 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def forward(self, x, y, opt, step, writer=None):
-        opt.zero_grad()
-        batch_size = x.size(0)
-        z = self.flownet(x)
+    def forward(self, x: torch.tensor):    # x.shape = 5,65 = 5,64 + bias
+        batch_size = x.size(0)  # 5
+        tn_num_values = x.size(1)   # 65
 
-        # Loss
-        y, delta_log_py = self.point_cnf(y, z, torch.zeros(batch_size, y.size(1), 1).to(y))
+        # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
+
+        # podejscie 1: omijamy flownet, bo tam sa jakies konwolucje. Zakladamy z_dim=65*5 i wrzucamy flattena do point_cnf
+        # z = self.flownet(x)
+        z = x.flatten()
+
+        # 2) wylosuj sample z rozkladu normalnego (chyba powinien byc w ksztalcie pozadanego outputu).
+        # todo trzeba wybadac co robi to input_dim dokladnie
+        # my bierzemy domyslnie Normal, mozna zawsze zmienic
         if self.logprob_type == "Laplace":
-            log_py = standard_laplace_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+            y = self.sample_laplace((*x.shape, self.input_dim), self.gpu)
         if self.logprob_type == "Normal":
-            log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
-        delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
+            y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
+
+        # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i) tu z: embedding rozmiaru 100
+        target_networks_weights = self.point_cnf(y.reshape(1,-1), z, reverse=True).view(*y.size())
+
+        # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
+        # oznaczymy chyba zbior wag na kanaly wyjscia, ktorych jest piec, kazdy z nich bierze 64 wartosci + bias
+        y2, delta_log_py = self.point_cnf(target_networks_weights, z,
+                                         torch.zeros(batch_size, y.size(1), 1).to(y))
+
+        log_py = standard_normal_logprob(y2).view(batch_size, -1).sum(1, keepdim=True)
+        delta_log_py = delta_log_py.view(batch_size, y2.size(1), 1).sum(1)
         log_px = log_py - delta_log_py
+        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+        loss = log_px.mean()
+        # policzyc gestosci priora log N(w_i | (0,I)) ale teraz inaczej niz ostatnio. Liczymy kazdy z pieciu wierszy osobno
+        # na rozkladzie normalnym wymiaru 65 (64 + bias poki co)
+        multivariate_normal_distrib = torch.distributions.MultivariateNormal(
+            torch.zeros(tn_num_values).to(loss), torch.eye(tn_num_values).to(loss))
+        # todo sprawdzic czy to zadziala, tzn czy cala macierz mozna tak wrzucic,
+        #  mamy odwzorowanie R^65 -> R na macierz R^5 X R^65
+        # tutaj biore srednia po 5 zestawach N_65
+        loss_density = multivariate_normal_distrib.log_prob(target_networks_weights).mean()
+        loss = loss - loss_density
 
-        loss = -log_px.mean()
+        return target_networks_weights, loss
 
-        loss.backward()
-        opt.step()
-        recon = -log_px.sum()
-        recon_nats = recon / float(y.size(0))
-        return recon_nats
+
+    # def forward(self, x, y, opt, step, writer=None):
+    #     opt.zero_grad()
+    #     batch_size = x.size(0)
+    #     z = self.flownet(x)
+    #
+    #     # Loss
+    #     y, delta_log_py = self.point_cnf(y, z, torch.zeros(batch_size, y.size(1), 1).to(y))
+    #     if self.logprob_type == "Laplace":
+    #         log_py = standard_laplace_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+    #     if self.logprob_type == "Normal":
+    #         log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
+    #     delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
+    #     log_px = log_py - delta_log_py
+    #
+    #     loss = -log_px.mean()
+    #
+    #     loss.backward()
+    #     opt.step()
+    #     recon = -log_px.sum()
+    #     recon_nats = recon / float(y.size(0))
+    #     return recon_nats
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):
         y = torch.randn(*size).float()
-        y = y if gpu is None else y.cuda(gpu)
+        y = y
         if truncate_std is not None:
             truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
         return y
-
-    @staticmethod
-    def sample_gaussian(size, truncate_std=None, gpu=None):
-        y = torch.randn(*size).float()
-        y = y if gpu is None else y.cuda(gpu)
-        if truncate_std is not None:
-            truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
-        return y
-
 
     @staticmethod
     def sample_laplace(size, gpu=None):
         m = Laplace(torch.tensor([0.0]), torch.tensor([1.0]))
         y = m.sample(sample_shape=torch.Size([size[0], size[1], size[2]])).float().squeeze(3)
-        y = y if gpu is None else y.cuda(gpu)
+        y = y
         return y
 
 

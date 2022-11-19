@@ -13,6 +13,7 @@ import backbone
 from methods.hypernets.utils import get_param_dict, accuracy_from_scores
 from methods.maml import MAML
 from regressionFlow.models.networks_regression_SDD import HyperRegression
+from regressionFlow.models.networks_regression_SDD_conditional import CRegression
 from methods.hypernets.hypermaml import HyperNet
 
 
@@ -69,14 +70,42 @@ class FHyperMAML(MAML):
 
         self._init_hypernet_modules(params)
         self._init_feature_net()
+        # self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=1, dims='3-4-2',
+        #                            latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
+        #                            layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
+        #                            use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
+        #                            sync_bn=False, bn_lag=0, root_dir=None, use_latent_flow=False,
+        #                            use_deterministic_encoder=False,
+        #                            zdim=1, optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
+        #                            beta2=0.999, momentum=0.9, weight_decay=1e-05, epochs=1000, seed=694754,
+        #                            recon_weight=1.0, prior_weight=1.0, entropy_weight=1.0, scheduler='linear',
+        #                            exp_decay=1.0, exp_decay_freq=1, image_size='28x28', data_dir='data/SDD/',
+        #                            dataset_type='shapenet15k', cates=['airplane'],
+        #                            mn40_data_dir='data/ModelNet40.PC15k',
+        #                            mn10_data_dir='data/ModelNet10.PC15k', dataset_scale=1.0, random_rotate=False,
+        #                            normalize_per_shape=False, normalize_std_per_axis=False, tr_max_sample_points=2048,
+        #                            te_max_sample_points=2048, num_workers=4, use_all_data=False,
+        #                            log_name='experiment_regression_flow_toy', viz_freq=1, val_freq=10, log_freq=1,
+        #                            save_freq=5, no_validation=False, save_val_results=False, eval_classification=False,
+        #                            no_eval_sampling=False, max_validate_shapes=None, resume_checkpoint=None,
+        #                            resume_optimizer=False, resume_non_strict=False, resume_dataset_mean=None,
+        #                            resume_dataset_std=None, world_size=1, dist_url='tcp://127.0.0.1:9991',
+        #                            dist_backend='nccl', distributed=False, rank=0, gpu=0, evaluate_recon=False,
+        #                            num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
+        #                            use_div_approx_train=False, use_div_approx_test=False)
 
-        self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=1, dims='3-4-2',
-                                   latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
+        self.flow_args = Namespace(model_type='PointNet', logprob_type='Normal', input_dim=1, dims='325',
+                                   # dims mozna zwiekszyc, to sa po prostu wymiary struktury flowa po myslnikach
+                                   # num_blocks dajemy 3
+                                   # rozklad bierzemy normalny
+                                   latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
-                                   sync_bn=False, bn_lag=0, root_dir=None, use_latent_flow=False,
+                                   sync_bn=False, bn_lag=0, zdim=65*5,
+                                   #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
+                                   root_dir=None, use_latent_flow=False,
                                    use_deterministic_encoder=False,
-                                   zdim=1, optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
+                                   optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
                                    beta2=0.999, momentum=0.9, weight_decay=1e-05, epochs=1000, seed=694754,
                                    recon_weight=1.0, prior_weight=1.0, entropy_weight=1.0, scheduler='linear',
                                    exp_decay=1.0, exp_decay_freq=1, image_size='28x28', data_dir='data/SDD/',
@@ -94,7 +123,8 @@ class FHyperMAML(MAML):
                                    num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
                                    use_div_approx_train=False, use_div_approx_test=False)
 
-        self.flow = HyperRegression(self.flow_args)
+        # self.flow = HyperRegression(self.flow_args)
+        self.flow = CRegression(self.flow_args)
 
         # args for scaling flow loss only
         self.flow_w = params.flow_w
@@ -181,12 +211,12 @@ class FHyperMAML(MAML):
                 upper = (i + 1) * self.n_support
                 new_embeddings[i] = embeddings[lower:upper, :].mean(dim=0)
 
-            return new_embeddings.cuda()
+            return new_embeddings
 
         return embeddings
 
     def get_support_data_labels(self):
-        return torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()  # labels for support data
+        return torch.from_numpy(np.repeat(range(self.n_way), self.n_support))  # labels for support data
 
     def get_hn_delta_params(self, support_embeddings):
         if self.hm_detach_before_hyper_net:
@@ -339,7 +369,7 @@ class FHyperMAML(MAML):
 
             return delta_params, flow_loss
         else:
-            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()]
+            return [torch.zeros(*i) for (_, i) in self.target_net_param_shapes.items()]
 
     def forward(self, x):
         out = self.feature.forward(x)
@@ -358,7 +388,7 @@ class FHyperMAML(MAML):
 
         assert is_feature == False, 'MAML do not support fixed feature'
 
-        x = x.cuda()
+        x = x
         x_var = Variable(x)
         support_data = x_var[:, :self.n_support, :, :, :].contiguous().view(self.n_way * self.n_support,
                                                                             *x.size()[2:])  # support data
@@ -405,10 +435,10 @@ class FHyperMAML(MAML):
 
     def set_forward_loss(self, x):
         scores, total_delta_sum, flow_loss = self.set_forward(x, is_feature=False, train_stage=True)
-        query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query))).cuda()
+        query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query)))
 
         if self.hm_support_set_loss:
-            support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()
+            support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support))
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
@@ -427,7 +457,7 @@ class FHyperMAML(MAML):
 
     def set_forward_loss_with_adaptation(self, x):
         scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
-        support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
+        support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support)))
 
         loss_ce = self.loss_fn(scores, support_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
