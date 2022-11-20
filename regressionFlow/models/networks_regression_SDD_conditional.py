@@ -143,10 +143,10 @@ class CRegression(nn.Module):
         if self.logprob_type == "Laplace":
             y = self.sample_laplace((*x.shape, self.input_dim), self.gpu)
         if self.logprob_type == "Normal":
-            y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
-
+            # y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
+            y = self.sample_gaussian((5,65,1), None, self.gpu)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i) tu z: embedding rozmiaru 100
-        target_networks_weights = self.point_cnf(y.reshape(1,-1), z, reverse=True).view(*y.size())
+        target_networks_weights = self.point_cnf(y.reshape(1,-1), z.reshape(1,-1), reverse=True).view(*y.size())
 
         # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
         # oznaczymy chyba zbior wag na kanaly wyjscia, ktorych jest piec, kazdy z nich bierze 64 wartosci + bias

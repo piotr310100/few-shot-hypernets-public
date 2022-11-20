@@ -94,7 +94,7 @@ class FHyperMAML(MAML):
         #                            num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
         #                            use_div_approx_train=False, use_div_approx_test=False)
 
-        self.flow_args = Namespace(model_type='PointNet', logprob_type='Normal', input_dim=1, dims='325',
+        self.flow_args = Namespace(model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    # dims mozna zwiekszyc, to sa po prostu wymiary struktury flowa po myslnikach
                                    # num_blocks dajemy 3
                                    # rozklad bierzemy normalny
