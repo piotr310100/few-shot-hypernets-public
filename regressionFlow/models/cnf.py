@@ -52,6 +52,7 @@ class CNF(nn.Module):
         self.solver_options = {}
         self.conditional = conditional
 
+
     def forward(self, x, context=None, logpx=None, integration_times=None, reverse=False):
         if logpx is None:
             _logpx = torch.zeros(*x.shape[:-1], 1).to(x)
@@ -64,9 +65,9 @@ class CNF(nn.Module):
             assert context is not None
             states = (x, _logpx, context.to(x))
             # atol = [self.atol] * 3
-            # rtol = [self.rtol] * 3
-            atol = [self.atol] * 3
-            rtol = [self.rtol] * 3
+            # rtol = [self.rtol]  3
+            atol = self.atol
+            rtol = self.rtol
         else:
             states = (x, _logpx)
             atol = [self.atol] * 2

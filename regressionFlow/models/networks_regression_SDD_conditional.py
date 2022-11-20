@@ -148,26 +148,28 @@ class CRegression(nn.Module):
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i) tu z: embedding rozmiaru 100
         target_networks_weights = self.point_cnf(y.reshape(1,-1), z.reshape(1,-1), reverse=True).view(*y.size())
 
-        # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
-        # oznaczymy chyba zbior wag na kanaly wyjscia, ktorych jest piec, kazdy z nich bierze 64 wartosci + bias
-        y2, delta_log_py = self.point_cnf(target_networks_weights, z,
-                                         torch.zeros(batch_size, y.size(1), 1).to(y))
-
-        log_py = standard_normal_logprob(y2).view(batch_size, -1).sum(1, keepdim=True)
-        delta_log_py = delta_log_py.view(batch_size, y2.size(1), 1).sum(1)
-        log_px = log_py - delta_log_py
-        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-        loss = log_px.mean()
-        # policzyc gestosci priora log N(w_i | (0,I)) ale teraz inaczej niz ostatnio. Liczymy kazdy z pieciu wierszy osobno
-        # na rozkladzie normalnym wymiaru 65 (64 + bias poki co)
-        multivariate_normal_distrib = torch.distributions.MultivariateNormal(
-            torch.zeros(tn_num_values).to(loss), torch.eye(tn_num_values).to(loss))
-        # todo sprawdzic czy to zadziala, tzn czy cala macierz mozna tak wrzucic,
-        #  mamy odwzorowanie R^65 -> R na macierz R^5 X R^65
-        # tutaj biore srednia po 5 zestawach N_65
-        loss_density = multivariate_normal_distrib.log_prob(target_networks_weights).mean()
-        loss = loss - loss_density
-
+        # ------- LOSS ----------
+        # # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
+        # # oznaczymy chyba zbior wag na kanaly wyjscia, ktorych jest piec, kazdy z nich bierze 64 wartosci + bias
+        # y2, delta_log_py = self.point_cnf(target_networks_weights, z,
+        #                                  torch.zeros(batch_size, y.size(1), 1).to(y))
+        #
+        # log_py = standard_normal_logprob(y2).view(batch_size, -1).sum(1, keepdim=True)
+        # delta_log_py = delta_log_py.view(batch_size, y2.size(1), 1).sum(1)
+        # log_px = log_py - delta_log_py
+        # # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+        # loss = log_px.mean()
+        # # policzyc gestosci priora log N(w_i | (0,I)) ale teraz inaczej niz ostatnio. Liczymy kazdy z pieciu wierszy osobno
+        # # na rozkladzie normalnym wymiaru 65 (64 + bias poki co)
+        # multivariate_normal_distrib = torch.distributions.MultivariateNormal(
+        #     torch.zeros(tn_num_values).to(loss), torch.eye(tn_num_values).to(loss))
+        # # todo sprawdzic czy to zadziala, tzn czy cala macierz mozna tak wrzucic,
+        # #  mamy odwzorowanie R^65 -> R na macierz R^5 X R^65
+        # # tutaj biore srednia po 5 zestawach N_65
+        # loss_density = multivariate_normal_distrib.log_prob(target_networks_weights).mean()
+        # loss = loss - loss_density
+        loss = torch.tensor([0])
+        target_networks_weights = target_networks_weights.reshape(5,65)
         return target_networks_weights, loss
 
 
