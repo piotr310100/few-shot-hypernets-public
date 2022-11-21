@@ -169,8 +169,8 @@ class CRegression(nn.Module):
         # loss_density = multivariate_normal_distrib.log_prob(target_networks_weights).mean()
         # loss = loss - loss_density
         loss = torch.tensor([0])
-        target_networks_weights = target_networks_weights.reshape(5,65)
-        return target_networks_weights, loss
+
+        return target_networks_weights.reshape(5,65), loss
 
 
     # def forward(self, x, y, opt, step, writer=None):
@@ -198,7 +198,7 @@ class CRegression(nn.Module):
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):
         y = torch.randn(*size).float()
-        y = y
+        y = y if gpu is None else y.cuda(gpu)
         if truncate_std is not None:
             truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
         return y
@@ -207,7 +207,7 @@ class CRegression(nn.Module):
     def sample_laplace(size, gpu=None):
         m = Laplace(torch.tensor([0.0]), torch.tensor([1.0]))
         y = m.sample(sample_shape=torch.Size([size[0], size[1], size[2]])).float().squeeze(3)
-        y = y
+        y = y if gpu is None else y.cuda(gpu)
         return y
 
 

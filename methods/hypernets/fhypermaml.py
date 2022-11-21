@@ -98,7 +98,7 @@ class FHyperMAML(MAML):
                                    # dims mozna zwiekszyc, to sa po prostu wymiary struktury flowa po myslnikach
                                    # num_blocks dajemy 3
                                    # rozklad bierzemy normalny
-                                   latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
+                                   latent_dims='256', hyper_dims='256', num_blocks=3, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
                                    sync_bn=False, bn_lag=0, zdim=65*5,
@@ -211,12 +211,12 @@ class FHyperMAML(MAML):
                 upper = (i + 1) * self.n_support
                 new_embeddings[i] = embeddings[lower:upper, :].mean(dim=0)
 
-            return new_embeddings
+            return new_embeddings.cuda()
 
         return embeddings
 
     def get_support_data_labels(self):
-        return torch.from_numpy(np.repeat(range(self.n_way), self.n_support))  # labels for support data
+        return torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()  # labels for support data
 
     def get_hn_delta_params(self, support_embeddings):
         if self.hm_detach_before_hyper_net:
@@ -369,7 +369,7 @@ class FHyperMAML(MAML):
 
             return delta_params, flow_loss
         else:
-            return [torch.zeros(*i) for (_, i) in self.target_net_param_shapes.items()]
+            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()]
 
     def forward(self, x):
         out = self.feature.forward(x)
@@ -388,7 +388,7 @@ class FHyperMAML(MAML):
 
         assert is_feature == False, 'MAML do not support fixed feature'
 
-        x = x
+        x = x.cuda()
         x_var = Variable(x)
         support_data = x_var[:, :self.n_support, :, :, :].contiguous().view(self.n_way * self.n_support,
                                                                             *x.size()[2:])  # support data
@@ -435,10 +435,10 @@ class FHyperMAML(MAML):
 
     def set_forward_loss(self, x):
         scores, total_delta_sum, flow_loss = self.set_forward(x, is_feature=False, train_stage=True)
-        query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query)))
+        query_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_query))).cuda()
 
         if self.hm_support_set_loss:
-            support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support))
+            support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
@@ -457,7 +457,7 @@ class FHyperMAML(MAML):
 
     def set_forward_loss_with_adaptation(self, x):
         scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
-        support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support)))
+        support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
         loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
