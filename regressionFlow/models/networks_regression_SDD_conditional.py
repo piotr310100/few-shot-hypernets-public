@@ -113,7 +113,7 @@ class CRegression(nn.Module):
         self.point_cnf = get_point_cnf(args)
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
-
+        self.const_sample = self.sample_gaussian((5,65,1), None, self.gpu)
     def make_optimizer(self, args):
         def _get_opt_(params):
             if args.optimizer == 'adam':
@@ -144,9 +144,11 @@ class CRegression(nn.Module):
             y = self.sample_laplace((*x.shape, self.input_dim), self.gpu)
         if self.logprob_type == "Normal":
             # y = self.sample_gaussian((*x.shape, self.input_dim), None, self.gpu)
-            y = self.sample_gaussian((5,65,1), None, self.gpu)
+            # y = self.sample_gaussian((5,65,1), None, self.gpu)
+            # y = torch.zeros(5,65,1).cuda(self.gpu)
+            y = self.const_sample
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i) tu z: embedding rozmiaru 100
-        target_networks_weights = self.point_cnf(y.reshape(1,-1), z.reshape(1,-1), reverse=True).view(*y.size())
+        target_networks_weights = self.point_cnf(y.reshape(1,1,-1), z.reshape(1,-1), reverse=True).view(*y.size())
 
         # ------- LOSS ----------
         # # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
