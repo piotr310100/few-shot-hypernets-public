@@ -118,16 +118,11 @@ class CRegression(nn.Module):
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
         self.const_sample = self.sample_gaussian((5, 65, 1), None, self.gpu)
+        self.num_zeros_warmup_epochs = args.num_zeros_warmup_epochs
 
-        self.data_loader_len = 100  # rozmiar batcha (treningowego)
+        # changes via fhypermaml module
+        self.sample_w = 1
         self.curr_epoch = 0
-        self.num_zeros_warmup_epochs = 10
-        self.num_gauss_warmup_epochs = 50
-
-        self.value_step = 1 / self.num_gauss_warmup_epochs
-        self.curr_batch_progress = 0
-        self.sample_w = 0
-
     def make_optimizer(self, args):
         def _get_opt_(params):
             if args.optimizer == 'adam':
@@ -143,13 +138,6 @@ class CRegression(nn.Module):
         return opt
 
     def forward(self, x: torch.tensor):  # x.shape = 5,65 = 5,64 + bias
-        if self.curr_batch_progress == self.data_loader_len:
-            self.curr_epoch += 1
-            self.curr_batch_progress = 0
-            if self.curr_epoch >= self.num_zeros_warmup_epochs:
-                self.sample_w += self.value_step
-
-        self.curr_batch_progress += 1
         batch_size = x.size(0)  # 5
         tn_num_values = x.size(1)  # 65
 
@@ -157,13 +145,13 @@ class CRegression(nn.Module):
         # z = self.flownet(x)
         z = x.flatten()
 
-        # 2) wylosuj sample z rozkladu normalnego (chyba powinien byc w ksztalcie pozadanego outputu).
+        # 2) wylosuj sample z rozkladu normalnego
         if self.curr_epoch >= self.num_zeros_warmup_epochs:
             y = self.sample_w * self.sample_gaussian((1, 1, batch_size * tn_num_values), None, self.gpu)
         else:
             y = torch.zeros(1, 1, batch_size * tn_num_values).cuda(self.gpu)
 
-        # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i) tu z: embedding rozmiaru 100
+        # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         target_networks_weights = self.point_cnf(y, z.reshape(1, -1), reverse=True).view(*y.size())
 
         # ------- LOSS ----------

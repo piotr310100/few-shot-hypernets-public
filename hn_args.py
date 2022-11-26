@@ -77,10 +77,11 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     bhypermaml_args.add_argument('--kl_scale', default=1e-24, type=float, help='initial value of kld_scale (default 1e-24)')
 
     fhypermaml_args = parser.add_argument_group("FHyperMAML (only) related arguments")
-    fhypermaml_args.add_argument('--do_scale', action='store_true',help="Scaling flow loss function?")
     fhypermaml_args.add_argument('--flow_w',default=0.01,type=float,help='const restraint factor for flow loss (default 0.01). 0 for no flow loss')
-    fhypermaml_args.add_argument('--flow_stop_val', default=1e-3, type=float, help='final value of flow_scale (default 1e-3)')
-    fhypermaml_args.add_argument('--flow_scale', default=1e-24, type=float, help='initial value of flow_scale (default 1e-24)')
-    fhypermaml_args.add_argument('--flow_warmup',action='store_true',help='Allow to use maml warmup')
+
+    fhypermaml_args.add_argument('--flow_stop_val', default=1, type=float, help='final value of flow_scale')
+    fhypermaml_args.add_argument('--flow_scale', default=0.005, type=float, help='initial value of flow_scale')
+    fhypermaml_args.add_argument('--flow_zero_warmup_epochs', default=10, type=int,help='num of epochs for flow using zeros as sample')
+    fhypermaml_args.add_argument('--flow_temp_warmup_epochs', default=50, type=int,help='num of epochs for flow using increasing scaled gauss sample')
 
     return parser

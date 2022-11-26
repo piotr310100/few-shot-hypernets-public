@@ -41,7 +41,7 @@ class FHyperMAML(MAML):
         self.hm_use_class_batch_input = params.hm_use_class_batch_input
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
-        self.hm_maml_warmup = params.flow_warmup
+        self.hm_maml_warmup = False
         self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
@@ -70,35 +70,11 @@ class FHyperMAML(MAML):
 
         self._init_hypernet_modules(params)
         self._init_feature_net()
-        # self.flow_args = Namespace(model_type='PointNet', logprob_type='Laplace', input_dim=1, dims='3-4-2',
-        #                            latent_dims='256', hyper_dims='128-32', num_blocks=1, latent_num_blocks=1,
-        #                            layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
-        #                            use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
-        #                            sync_bn=False, bn_lag=0, root_dir=None, use_latent_flow=False,
-        #                            use_deterministic_encoder=False,
-        #                            zdim=1, optimizer='adam', batch_size=1000, lr=0.001, beta1=0.9,
-        #                            beta2=0.999, momentum=0.9, weight_decay=1e-05, epochs=1000, seed=694754,
-        #                            recon_weight=1.0, prior_weight=1.0, entropy_weight=1.0, scheduler='linear',
-        #                            exp_decay=1.0, exp_decay_freq=1, image_size='28x28', data_dir='data/SDD/',
-        #                            dataset_type='shapenet15k', cates=['airplane'],
-        #                            mn40_data_dir='data/ModelNet40.PC15k',
-        #                            mn10_data_dir='data/ModelNet10.PC15k', dataset_scale=1.0, random_rotate=False,
-        #                            normalize_per_shape=False, normalize_std_per_axis=False, tr_max_sample_points=2048,
-        #                            te_max_sample_points=2048, num_workers=4, use_all_data=False,
-        #                            log_name='experiment_regression_flow_toy', viz_freq=1, val_freq=10, log_freq=1,
-        #                            save_freq=5, no_validation=False, save_val_results=False, eval_classification=False,
-        #                            no_eval_sampling=False, max_validate_shapes=None, resume_checkpoint=None,
-        #                            resume_optimizer=False, resume_non_strict=False, resume_dataset_mean=None,
-        #                            resume_dataset_std=None, world_size=1, dist_url='tcp://127.0.0.1:9991',
-        #                            dist_backend='nccl', distributed=False, rank=0, gpu=0, evaluate_recon=False,
-        #                            num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
-        #                            use_div_approx_train=False, use_div_approx_test=False)
 
-        self.flow_args = Namespace(model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
-                                   # dims mozna zwiekszyc, to sa po prostu wymiary struktury flowa po myslnikach
-                                   # num_blocks dajemy 3
-                                   # rozklad bierzemy normalny
-                                   latent_dims='256', hyper_dims='256', num_blocks=3, latent_num_blocks=1,
+        self.flow_num_zeros_warmup_epochs = params.flow_zero_warmup_epochs
+        self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
+        self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
+                                   latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
                                    sync_bn=False, bn_lag=0, zdim=65*5,
@@ -126,23 +102,22 @@ class FHyperMAML(MAML):
         # self.flow = HyperRegression(self.flow_args)
         self.flow = CRegression(self.flow_args)
 
-        # args for scaling flow loss only
+        # args for scaling flow
         self.flow_w = params.flow_w
-        self.do_scale = params.do_scale
-        if self.do_scale:
-            self.flow_scale = params.flow_scale
-            self.flow_stop_val = params.flow_stop_val
-            self.flow_step = None
-        else:
-            self.flow_scale = 1
 
-    def _scale_step(self):
-        if self.do_scale:
+        self.flow_scale = params.flow_scale
+        self.flow_stop_val = params.flow_stop_val
+        self.flow_step = None
+
+    def _sample_scale_step(self):
+        if self.epoch > self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
             if self.flow_step is None:
-                # scale step is calculated so that share of kld in loss increases kl_scale -> kl_stop_val
-                self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.stop_epoch)
+                # scale step is calculated so that temperature of gauss sample increases kl_scale -> kl_stop_val
+                self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
 
             self.flow_scale = self.flow_scale * self.flow_step
+            self.flow.sample_w = self.flow_scale
+
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -484,6 +459,7 @@ class FHyperMAML(MAML):
 
         # train
         for i, (x, _) in enumerate(train_loader):
+            self.flow.curr_epoch = self.epoch
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
@@ -508,7 +484,8 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-        self._scale_step()
+        self._sample_scale_step()
+
 
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
