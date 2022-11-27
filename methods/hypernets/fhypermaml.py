@@ -110,15 +110,16 @@ class FHyperMAML(MAML):
         self.flow_step = None
 
     def _sample_scale_step(self):
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs >= self.epoch\
-                > self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+                >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
             if self.flow_step is None:
                 # scale step is calculated so that temperature of gauss sample increases kl_scale -> kl_stop_val
                 self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
 
             self.flow_scale = self.flow_scale * self.flow_step
             self.flow.sample_w = self.flow_scale
-
+        elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+            self.flow.sample_w = 1  # dla bledu przyblizen
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
