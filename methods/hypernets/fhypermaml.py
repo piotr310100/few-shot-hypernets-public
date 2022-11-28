@@ -126,7 +126,7 @@ class FHyperMAML(MAML):
         elif self.flow_temp_strategy == "Linear":
             if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
                         >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
-                if self.flow_scale is None:
+                if self.flow_step is None:
                     self.flow.sample_w = 0
                     self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
                 else:
