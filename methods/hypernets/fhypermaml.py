@@ -73,6 +73,8 @@ class FHyperMAML(MAML):
 
         self.flow_num_zeros_warmup_epochs = params.flow_zero_warmup_epochs
         self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
+        self.flow_temp_strategy = params.flow_temp_strategy
+
         self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
@@ -110,16 +112,29 @@ class FHyperMAML(MAML):
         self.flow_step = None
 
     def _sample_scale_step(self):
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
-                >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
-            if self.flow_step is None:
-                # scale step is calculated so that temperature of gauss sample increases kl_scale -> kl_stop_val
-                self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
+        if self.flow_temp_strategy == "Exp":
+            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+                if self.flow_step is None:
+                    # scale step is calculated so that temperature of gauss sample increases kl_scale -> kl_stop_val
+                    self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
 
-            self.flow_scale = self.flow_scale * self.flow_step
-            self.flow.sample_w = self.flow_scale
-        elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
-            self.flow.sample_w = 1  # dla bledu przyblizen
+                self.flow_scale = self.flow_scale * self.flow_step
+                self.flow.sample_w = self.flow_scale
+            elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+                self.flow.sample_w = 1  # dla bledu przyblizen
+        elif self.flow_temp_strategy == "Linear":
+            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+                        >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+                if self.flow_scale is None:
+                    self.flow.sample_w = 0
+                    self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
+                else:
+                    self.flow.sample_w = self.flow.sample_w + self.flow_step
+            elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+                self.flow.sample_w = 1
+
+            
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -285,7 +300,7 @@ class FHyperMAML(MAML):
                     flow_loss.to(loss_ce)
 
                     # append flow loss
-                    set_loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+                    set_loss = loss_ce - self.flow_w * flow_loss
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
@@ -419,7 +434,7 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+        loss = loss_ce - self.flow_w * flow_loss
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -437,7 +452,7 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        loss = loss_ce - self.flow_w * self.flow_scale * flow_loss
+        loss = loss_ce - self.flow_w * flow_loss
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
@@ -468,7 +483,7 @@ class FHyperMAML(MAML):
             loss, task_accuracy, loss_flow = self.set_forward_loss(x)
             avg_loss = avg_loss + loss.item()  # .data[0]
             flow_loss.append(loss_flow.item())
-            flow_loss_scaled.append(loss_flow.item() * self.flow_scale * self.flow_w)
+            flow_loss_scaled.append(loss_flow.item() * self.flow_w)
             loss_all.append(loss)
             acc_all.append(task_accuracy)
 
