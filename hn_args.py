@@ -81,7 +81,7 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
 
     fhypermaml_args.add_argument('--flow_stop_val', default=1, type=float, help='final value of flow_scale')
     fhypermaml_args.add_argument('--flow_scale', default=0.005, type=float, help='initial value of flow_scale')
-    fhypermaml_args.add_argument('--flow_temp_strategy', default="Linear", choices=["Linear", "Exp"], help="Strategy for increasing temperature")
+    fhypermaml_args.add_argument('--flow_temp_strategy', default="Linear", choices=["Linear", "Exp"], help="strategy for increasing sample temperature")
     fhypermaml_args.add_argument('--flow_zero_warmup_epochs', default=10, type=int,help='num of epochs for flow using zeros as sample')
     fhypermaml_args.add_argument('--flow_temp_warmup_epochs', default=50, type=int,help='num of epochs for flow using increasing scaled gauss sample')
 

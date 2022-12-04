@@ -112,17 +112,19 @@ class CRegression(nn.Module):
     def __init__(self, args):
         super(CRegression, self).__init__()
         self.input_dim = args.input_dim
-        self.flownet = FlowNetS() 
+        self.flownet = FlowNetS()
         self.args = args
         self.point_cnf = get_point_cnf(args)
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
         self.const_sample = self.sample_gaussian((5, 65, 1), None, self.gpu)
         self.num_zeros_warmup_epochs = args.num_zeros_warmup_epochs
-
+        self.prior_distribution = torch.distributions.MultivariateNormal(
+                torch.zeros(5*65).cuda(), torch.eye(5*65).cuda())
         # changes via fhypermaml module
         self.sample_w = 1
         self.curr_epoch = 0
+
     def make_optimizer(self, args):
         def _get_opt_(params):
             if args.optimizer == 'adam':
@@ -137,8 +139,10 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def forward(self, x: torch.tensor):  # x.shape = 5,65 = 5,64 + bias
-        batch_size = x.size(0)  # 5
+    def forward(self, x: torch.tensor, global_weights):  # x.shape = 5,65 = 5,64 + bias
+        zeros_warmup = (self.curr_epoch < self.num_zeros_warmup_epochs)
+
+        tn_shape = x.size(0)  # 5
         tn_num_values = x.size(1)  # 65
 
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
@@ -146,37 +150,35 @@ class CRegression(nn.Module):
         z = x.flatten()
 
         # 2) wylosuj sample z rozkladu normalnego
-        if self.curr_epoch >= self.num_zeros_warmup_epochs:
-            y = self.sample_w * self.sample_gaussian((1, 1, batch_size * tn_num_values), None, self.gpu)
+        if not zeros_warmup:
+            y = self.sample_w * self.sample_gaussian((1, 1, tn_shape * tn_num_values), None, self.gpu)
         else:
-            y = torch.zeros(1, 1, batch_size * tn_num_values).cuda(self.gpu)
+            y = torch.zeros(1, 1, tn_shape * tn_num_values).cuda(self.gpu)
 
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
-        target_networks_weights = self.point_cnf(y, z.reshape(1, -1), reverse=True).view(*y.size())
+        delta_target_networks_weights = self.point_cnf(y, z.reshape(1, -1), reverse=True).view(*y.size())
 
         # ------- LOSS ----------
-        # # Liczenie DKL. Pytanie- na spotkaniu co rozumielismy przez batche? W konktescie TN to batchem
-        # # oznaczymy chyba zbior wag na kanaly wyjscia, ktorych jest piec, kazdy z nich bierze 64 wartosci + bias
-        # y2, delta_log_py = self.point_cnf(target_networks_weights, z,
-        #                                  torch.zeros(batch_size, y.size(1), 1).to(y))
-        #
-        # log_py = standard_normal_logprob(y2).view(batch_size, -1).sum(1, keepdim=True)
-        # delta_log_py = delta_log_py.view(batch_size, y2.size(1), 1).sum(1)
-        # log_px = log_py - delta_log_py
-        # # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-        # loss = log_px.mean()
-        # # policzyc gestosci priora log N(w_i | (0,I)) ale teraz inaczej niz ostatnio. Liczymy kazdy z pieciu wierszy osobno
-        # # na rozkladzie normalnym wymiaru 65 (64 + bias poki co)
-        # multivariate_normal_distrib = torch.distributions.MultivariateNormal(
-        #     torch.zeros(tn_num_values).to(loss), torch.eye(tn_num_values).to(loss))
-        # # todo sprawdzic czy to zadziala, tzn czy cala macierz mozna tak wrzucic,
-        # #  mamy odwzorowanie R^65 -> R na macierz R^5 X R^65
-        # # tutaj biore srednia po 5 zestawach N_65
-        # loss_density = multivariate_normal_distrib.log_prob(target_networks_weights).mean()
-        # loss = loss - loss_density
-        loss = torch.tensor([0])
+        if not zeros_warmup:
+            # zaktualizowane parametry TN do liczenia lossu
+            z_prim = list(global_weights)
+            z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1, 1)], axis=1) + x
+            # y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1,-1),
+            #                                  torch.zeros(batch_size, y.size(1), 1).to(y))
+            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1, -1), torch.zeros(1,1,1).to(y))
+            # y2 = y2.reshape(*y.size)
+            log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
+            # delta_log_py = delta_log_py.view(tn_shape, y2.size(1), 1).sum(1)
+            log_px = log_py - delta_log_py
+            # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+            loss = log_px.mean()
+            # policzyc gestosci priora log N(w_i | (0,I))
+            loss_density = self.prior_distribution.log_prob(z_prim.flatten())
+            loss = loss - loss_density
+        else:
+            loss = torch.tensor([0])
 
-        return target_networks_weights.reshape(5, 65), loss
+        return delta_target_networks_weights.reshape(5, 65), loss
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):

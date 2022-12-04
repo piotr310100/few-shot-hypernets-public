@@ -1,3 +1,4 @@
+
 from argparse import Namespace
 from collections import defaultdict
 from copy import deepcopy
@@ -182,7 +183,6 @@ class FHyperMAML(MAML):
 
             head_in = self.embedding_size
             head_out = (param.numel() // self.n_way) + bias_size if self.hm_use_class_batch_input else param.numel()
-            head_modules = []
 
             self.hypernet_heads[name] = HyperNet(self.hn_hidden_size, self.n_way, head_in, self.feat_dim, head_out,
                                                  params)
@@ -228,9 +228,8 @@ class FHyperMAML(MAML):
                 bias_neurons_num = self.target_net_param_shapes[name][0] // self.n_way
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
-
                 delta_params_shape = delta_params.shape
-                delta_params, loss_flow = self.flow(delta_params)
+                delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
                 if total_loss_flow is None:
                     total_loss_flow = loss_flow
                 else:
