@@ -162,7 +162,7 @@ class CRegression(nn.Module):
         if not zeros_warmup:
             # zaktualizowane parametry TN do liczenia lossu
             z_prim = list(global_weights)
-            z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1, 1)], axis=1) + delta_target_networks_weights
+            z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1, 1)], axis=1) + delta_target_networks_weights.reshape(5,65)
             # y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1,-1),
             #                                  torch.zeros(batch_size, y.size(1), 1).to(y))
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1, -1), torch.zeros(1,1,1).to(y))
