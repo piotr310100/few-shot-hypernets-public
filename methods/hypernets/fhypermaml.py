@@ -79,7 +79,7 @@ class FHyperMAML(MAML):
         self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
-                                   use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=True,
+                                   use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=False,
                                    sync_bn=False, bn_lag=0, zdim=65*5,
                                    #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
                                    root_dir=None, use_latent_flow=False,
