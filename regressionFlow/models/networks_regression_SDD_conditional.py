@@ -122,7 +122,8 @@ class CRegression(nn.Module):
         self.prior_distribution = torch.distributions.MultivariateNormal(
                 torch.zeros(5*65).cuda(), torch.eye(5*65).cuda())
         # changes via fhypermaml module
-        self.sample_w = 1
+        self.temp_w = 0
+        self.dkl_w = 0
         self.curr_epoch = 0
 
     def make_optimizer(self, args):
@@ -142,18 +143,17 @@ class CRegression(nn.Module):
     def forward(self, x: torch.tensor, global_weights):  # x.shape = 5,65 = 5,64 + bias
         zeros_warmup = (self.curr_epoch < self.num_zeros_warmup_epochs)
 
-        tn_shape = x.size(0)  # 5
-        tn_num_values = x.size(1)  # 65
+        tn_shape1 = x.size(0)  # 5
+        tn_shape2 = x.size(1)  # 65
 
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
-        # z = self.flownet(x)
         z = x.flatten()
 
         # 2) wylosuj sample z rozkladu normalnego
         if not zeros_warmup:
-            y = self.sample_w * self.sample_gaussian((1, 1, tn_shape * tn_num_values), None, self.gpu)
+            y = self.temp_w * self.sample_gaussian((1, 1, tn_shape1 * tn_shape2), None, self.gpu)
         else:
-            y = torch.zeros(1, 1, tn_shape * tn_num_values).cuda(self.gpu)
+            y = torch.zeros(1, 1, tn_shape1 * tn_shape2).cuda(self.gpu)
 
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         delta_target_networks_weights = self.point_cnf(y, z.reshape(1, -1), reverse=True).view(*y.size())
@@ -163,18 +163,16 @@ class CRegression(nn.Module):
             # zaktualizowane parametry TN do liczenia lossu
             z_prim = list(global_weights)
             z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1, 1)], axis=1) - delta_target_networks_weights.reshape(5,65)
-            # y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1,-1),
-            #                                  torch.zeros(batch_size, y.size(1), 1).to(y))
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1, -1), torch.zeros(1,1,1).to(y))
             # y2 = y2.reshape(*y.size)
             log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
-            # delta_log_py = delta_log_py.view(tn_shape, y2.size(1), 1).sum(1)
+            # delta_log_py = delta_log_py.view(tn_shape1, y2.size(1), 1).sum(1)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.mean()
             # policzyc gestosci priora log N(w_i | (0,I))
             loss_density = self.prior_distribution.log_prob(z_prim.flatten())
-            loss = self.sample_w * (loss - loss_density)
+            loss = self.dkl_w * (loss - loss_density)
         else:
             loss = torch.tensor([0])
 

@@ -72,16 +72,16 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     bhypermaml_args = parser.add_argument_group("BayesHMAML (only) related arguments")
     bhypermaml_args.add_argument('--hm_weight_set_num_train', default=1, type=int, help='number of randomly generated weights for training (default 1)')
     bhypermaml_args.add_argument('--hm_weight_set_num_test', default=20, type=int, help='number of randomly generated weights for test (default 20), if set to 0 expected value is generated')
-    # BHMAML and flow hypermaml only
     bhypermaml_args.add_argument('--kl_stop_val', default=1e-3, type=float, help='final value of kld_scale (default 1e-3)')
     bhypermaml_args.add_argument('--kl_scale', default=1e-24, type=float, help='initial value of kld_scale (default 1e-24)')
 
     fhypermaml_args = parser.add_argument_group("FHyperMAML (only) related arguments")
     fhypermaml_args.add_argument('--flow_w',default=0.01,type=float,help='const restraint factor for flow loss (default 0.01). 0 for no flow loss')
-
-    fhypermaml_args.add_argument('--flow_stop_val', default=1, type=float, help='final value of flow_scale')
-    fhypermaml_args.add_argument('--flow_scale', default=0.005, type=float, help='initial value of flow_scale')
-    fhypermaml_args.add_argument('--flow_temp_strategy', default="Linear", choices=["Linear", "Exp"], help="strategy for increasing sample temperature")
+    fhypermaml_args.add_argument('--flow_stop_val', default=1, type=float, help='final value of value scale for temperature and dkl')
+    fhypermaml_args.add_argument('--warmup_coef', default=1.2, type=float, help='flow_dkl_warmup_epochs / flow_temp_warmup_epochs coef')
+    fhypermaml_args.add_argument('--flow_scale', default=1e-24, type=float, help='initial value of flow_scale')
+    fhypermaml_args.add_argument('--flow_temp_strategy', default="Exp", choices=["Linear", "Exp"], help="strategy for increasing sample temperature in flow")
+    fhypermaml_args.add_argument('--flow_dkl_strategy', default="Linear", choices=["Linear", "Exp"], help="strategy for increasing dkl loss in flow")
     fhypermaml_args.add_argument('--flow_zero_warmup_epochs', default=10, type=int,help='num of epochs for flow using zeros as sample')
     fhypermaml_args.add_argument('--flow_temp_warmup_epochs', default=50, type=int,help='num of epochs for flow using increasing scaled gauss sample')
 

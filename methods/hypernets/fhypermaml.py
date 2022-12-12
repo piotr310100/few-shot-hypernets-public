@@ -42,7 +42,7 @@ class FHyperMAML(MAML):
         self.hm_use_class_batch_input = params.hm_use_class_batch_input
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
-        self.hm_maml_warmup = False
+        self.hm_maml_warmup = False # poki co wylaczone
         self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
@@ -74,7 +74,9 @@ class FHyperMAML(MAML):
 
         self.flow_num_zeros_warmup_epochs = params.flow_zero_warmup_epochs
         self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
+        self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
         self.flow_temp_strategy = params.flow_temp_strategy
+        self.flow_dkl_strategy = params.flow_dkl_strategy
 
         self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
@@ -102,40 +104,62 @@ class FHyperMAML(MAML):
                                    num_sample_shapes=10, num_sample_points=2048, use_sphere_dist=False,
                                    use_div_approx_train=False, use_div_approx_test=False)
 
-        # self.flow = HyperRegression(self.flow_args)
         self.flow = CRegression(self.flow_args)
 
-        # args for scaling flow
+        # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
 
         self.flow_scale = params.flow_scale
+        self.flow_dkl_scale = params.flow_scale
         self.flow_stop_val = params.flow_stop_val
         self.flow_step = None
+        self.flow_dkl_step = None
 
-    def _sample_scale_step(self):
+        # self.flow.temp_w = 0
+        # self.flow.dkl_w = 0
+
+    def _sample_dkl_step(self):
+        if self.flow_dkl_strategy == "Exp":
+            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
+                if self.flow_dkl_step is None:
+                    self.flow.dkl_w = 1
+                    self.flow_dkl_step = np.power(1 / self.flow_dkl_scale * self.flow_stop_val, 1 / self.flow_num_dkl_warmup_epochs)
+                self.flow_dkl_scale = self.flow_dkl_scale * self.flow_dkl_step
+        elif self.flow_dkl_strategy == "Linear":
+            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+                        >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
+                if self.flow_dkl_step is None:
+                    self.flow.dkl_w = 0
+                    self.flow_dkl_step = 1.0 / self.flow_num_dkl_warmup_epochs
+                self.flow_dkl_scale = self.flow_dkl_scale + self.flow_dkl_step
+
+    def _sample_temp_step(self):
         if self.flow_temp_strategy == "Exp":
             if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
-                    # scale step is calculated so that temperature of gauss sample increases kl_scale -> kl_stop_val
+                    self.flow.temp_w = 1
                     self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
-
                 self.flow_scale = self.flow_scale * self.flow_step
-                self.flow.sample_w = self.flow_scale
-            elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
-                self.flow.sample_w = 1  # dla bledu przyblizen
         elif self.flow_temp_strategy == "Linear":
             if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
                         >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
-                    self.flow.sample_w = 0
+                    self.flow.temp_w = 0
                     self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
-                else:
-                    self.flow.sample_w = self.flow.sample_w + self.flow_step
-            elif self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
-                self.flow.sample_w = 1
+                self.flow_scale = self.flow_scale + self.flow_step
 
-            
+    def _update_flow(self):
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+            self.flow.temp_w = 1
+        else:
+            self.flow.temp_w = self.flow_scale
+        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+            self.flow.dkl_w = 1
+        else:
+            self.flow.dkl_w = self.flow_dkl_scale
+
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -500,7 +524,9 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-        self._sample_scale_step()
+        self._sample_temp_step()
+        self._sample_dkl_step()
+        self._update_flow()
 
 
         acc_all = np.asarray(acc_all)
