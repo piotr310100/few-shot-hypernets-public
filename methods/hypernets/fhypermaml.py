@@ -151,11 +151,13 @@ class FHyperMAML(MAML):
                 self.flow_scale = self.flow_scale + self.flow_step
 
     def _update_flow(self):
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
+                or self.flow.temp_w > self.flow_stop_val:   # any numeric errors
             self.flow.temp_w = 1
         else:
             self.flow.temp_w = self.flow_scale
-        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch:
+        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
+                or self.flow.dkl_w > self.flow_stop_val:    # any numeric errors
             self.flow.dkl_w = 1
         else:
             self.flow.dkl_w = self.flow_dkl_scale
@@ -527,6 +529,7 @@ class FHyperMAML(MAML):
         self._sample_temp_step()
         self._sample_dkl_step()
         self._update_flow()
+        print(f"epoch: {self.flow.curr_epoch}: dkl_w {self.flow.dkl_w}, temp_w {self.flow.temp_w}")
 
 
         acc_all = np.asarray(acc_all)
