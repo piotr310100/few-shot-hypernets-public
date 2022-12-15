@@ -107,8 +107,17 @@ class ListModule(nn.Module):
     def __len__(self):
         return len(self._modules)
 
-
 class CRegression(nn.Module):
+    class EpochManager:
+        def __init__(self, num_zeros_warmup_epochs):
+            # changes via fhypermaml module
+            self.temp_w = 0
+            self.dkl_w = 0
+            self.curr_epoch = 0
+            self.num_zeros_warmup_epochs = num_zeros_warmup_epochs
+        def is_zero_warmup_epoch(self):
+            return self.curr_epoch < self.num_zeros_warmup_epochs
+
     def __init__(self, args):
         super(CRegression, self).__init__()
         self.input_dim = args.input_dim
@@ -118,13 +127,10 @@ class CRegression(nn.Module):
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
         self.const_sample = self.sample_gaussian((5, 65, 1), None, self.gpu)
-        self.num_zeros_warmup_epochs = args.num_zeros_warmup_epochs
         self.prior_distribution = torch.distributions.MultivariateNormal(
                 torch.zeros(5*65).cuda(), torch.eye(5*65).cuda())
-        # changes via fhypermaml module
-        self.temp_w = 0
-        self.dkl_w = 0
-        self.curr_epoch = 0
+        self.epoch_property = self.EpochManager(args.num_zeros_warmup_epochs)
+        self.dim_reducer_hn = torch.nn.Linear(5*65,args.zdim)
 
     def make_optimizer(self, args):
         def _get_opt_(params):
@@ -140,39 +146,36 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
+    def get_sample(self, shape: torch.Size):
+        if not self.epoch_property.is_zero_warmup_epoch():
+            y = self.epoch_property.temp_w * self.sample_gaussian((1, 1, shape[0] * shape[1]), None, self.gpu)
+        else:
+            y = torch.zeros(1, 1, shape[0] * shape[1]).cuda(self.gpu)
+        return y
+
     def forward(self, x: torch.tensor, global_weights):  # x.shape = 5,65 = 5,64 + bias
-        zeros_warmup = (self.curr_epoch < self.num_zeros_warmup_epochs)
-
-        tn_shape1 = x.size(0)  # 5
-        tn_shape2 = x.size(1)  # 65
-
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
-
         # 2) wylosuj sample z rozkladu normalnego
-        if not zeros_warmup:
-            y = self.temp_w * self.sample_gaussian((1, 1, tn_shape1 * tn_shape2), None, self.gpu)
-        else:
-            y = torch.zeros(1, 1, tn_shape1 * tn_shape2).cuda(self.gpu)
-
+        y = self.get_sample(x.shape)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
-        delta_target_networks_weights = self.point_cnf(y, z.reshape(1, -1), reverse=True).view(*y.size())
-
+        z = self.dim_reducer_hn(z).reshape(-1,1)
+        delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
-        if not zeros_warmup:
+        if not self.epoch_property.is_zero_warmup_epoch():
             # zaktualizowane parametry TN do liczenia lossu
             z_prim = list(global_weights)
-            z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1, 1)], axis=1) - delta_target_networks_weights.reshape(5,65)
-            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z.reshape(1, -1), torch.zeros(1,1,1).to(y))
+            z_prim = torch.cat([z_prim[0], z_prim[1].reshape(-1,1)], axis=1) - delta_target_networks_weights.reshape(5,65)
+            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1,1,1).to(y))
             # y2 = y2.reshape(*y.size)
             log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
             # delta_log_py = delta_log_py.view(tn_shape1, y2.size(1), 1).sum(1)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-            loss = log_px.mean()
+            loss = log_px
             # policzyc gestosci priora log N(w_i | (0,I))
             loss_density = self.prior_distribution.log_prob(z_prim.flatten())
-            loss = self.dkl_w * (loss - loss_density)
+            loss = self.epoch_property.dkl_w * (loss - loss_density)
         else:
             loss = torch.tensor([0])
 

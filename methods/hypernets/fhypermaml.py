@@ -77,12 +77,11 @@ class FHyperMAML(MAML):
         self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
         self.flow_temp_strategy = params.flow_temp_strategy
         self.flow_dkl_strategy = params.flow_dkl_strategy
-
         self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=False,
-                                   sync_bn=False, bn_lag=0, zdim=65*5,
+                                   sync_bn=False, bn_lag=0, zdim=100,
                                    #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
                                    root_dir=None, use_latent_flow=False,
                                    use_deterministic_encoder=False,
@@ -115,9 +114,6 @@ class FHyperMAML(MAML):
         self.flow_step = None
         self.flow_dkl_step = None
 
-        # self.flow.temp_w = 0
-        # self.flow.dkl_w = 0
-
     def _sample_dkl_step(self):
         if self.flow_dkl_strategy == "Exp":
             if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
@@ -139,28 +135,28 @@ class FHyperMAML(MAML):
             if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
-                    self.flow.temp_w = 1
+                    self.flow.epoch_property.temp_w = 1
                     self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
                 self.flow_scale = self.flow_scale * self.flow_step
         elif self.flow_temp_strategy == "Linear":
             if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
                         >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
-                    self.flow.temp_w = 0
+                    self.flow.epoch_property.temp_w = 0
                     self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
                 self.flow_scale = self.flow_scale + self.flow_step
 
     def _update_flow(self):
         if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
-                or self.flow.temp_w > self.flow_stop_val:   # any numeric errors
-            self.flow.temp_w = 1
+                or self.flow.epoch_property.temp_w > self.flow_stop_val:   # any numeric errors
+            self.flow.epoch_property.temp_w = 1
         else:
-            self.flow.temp_w = self.flow_scale
+            self.flow.epoch_property.temp_w = self.flow_scale
         if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
-                or self.flow.dkl_w > self.flow_stop_val:    # any numeric errors
-            self.flow.dkl_w = 1
+                or self.flow.epoch_property.dkl_w > self.flow_stop_val:    # any numeric errors
+            self.flow.epoch_property.dkl_w = 1
         else:
-            self.flow.dkl_w = self.flow_dkl_scale
+            self.flow.epoch_property.dkl_w = self.flow_dkl_scale
 
 
     def _init_feature_net(self):
@@ -501,7 +497,7 @@ class FHyperMAML(MAML):
 
         # train
         for i, (x, _) in enumerate(train_loader):
-            self.flow.curr_epoch = self.epoch
+            self.flow.epoch_property.curr_epoch = self.epoch
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
@@ -529,7 +525,7 @@ class FHyperMAML(MAML):
         self._sample_temp_step()
         self._sample_dkl_step()
         self._update_flow()
-        print(f"epoch: {self.flow.curr_epoch}: dkl_w {self.flow.dkl_w}, temp_w {self.flow.temp_w}")
+        print(f"epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, temp_w {self.flow.epoch_property.temp_w}")
 
 
         acc_all = np.asarray(acc_all)
