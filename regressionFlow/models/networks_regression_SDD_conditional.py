@@ -172,13 +172,13 @@ class CRegression(nn.Module):
             # delta_log_py = delta_log_py.view(tn_shape1, y2.size(1), 1).sum(1)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-            loss = log_px.resize(1)
+            loss = log_px.reshape(1)
             # policzyc gestosci priora log N(w_i | (0,I))
             loss_density = self.prior_distribution.log_prob(z_prim.flatten())
             loss = self.epoch_property.dkl_w * (loss - loss_density)
         else:
             loss = torch.tensor([0])
-
+        print(f"loss flow {loss}")
         return delta_target_networks_weights.reshape(5, 65), loss
 
     @staticmethod
