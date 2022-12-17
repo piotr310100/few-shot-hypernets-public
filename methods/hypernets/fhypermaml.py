@@ -1,4 +1,3 @@
-
 from argparse import Namespace
 from collections import defaultdict
 from copy import deepcopy
@@ -42,7 +41,8 @@ class FHyperMAML(MAML):
         self.hm_use_class_batch_input = params.hm_use_class_batch_input
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
-        self.hm_maml_warmup = False # poki co wylaczone
+        self.hm_maml_warmup = params.hm_maml_warmup
+        self.hm_maml_warmup_coef = 1
         self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
@@ -77,11 +77,12 @@ class FHyperMAML(MAML):
         self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
         self.flow_temp_strategy = params.flow_temp_strategy
         self.flow_dkl_strategy = params.flow_dkl_strategy
-        self.flow_args = Namespace(num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs, model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
+        self.flow_args = Namespace(shape1=5, shape2=65, num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs,
+                                   model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=False,
-                                   sync_bn=False, bn_lag=0, zdim=100,
+                                   sync_bn=False, bn_lag=0, zdim=params.flow_zdim,
                                    #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
                                    root_dir=None, use_latent_flow=False,
                                    use_deterministic_encoder=False,
@@ -107,7 +108,6 @@ class FHyperMAML(MAML):
 
         # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
-
         self.flow_scale = params.flow_scale
         self.flow_dkl_scale = params.flow_scale
         self.flow_stop_val = params.flow_stop_val
@@ -116,15 +116,16 @@ class FHyperMAML(MAML):
 
     def _sample_dkl_step(self):
         if self.flow_dkl_strategy == "Exp":
-            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
                 if self.flow_dkl_step is None:
                     self.flow.dkl_w = 1
-                    self.flow_dkl_step = np.power(1 / self.flow_dkl_scale * self.flow_stop_val, 1 / self.flow_num_dkl_warmup_epochs)
+                    self.flow_dkl_step = np.power(1 / self.flow_dkl_scale * self.flow_stop_val,
+                                                  1 / self.flow_num_dkl_warmup_epochs)
                 self.flow_dkl_scale = self.flow_dkl_scale * self.flow_dkl_step
         elif self.flow_dkl_strategy == "Linear":
-            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
-                        >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
+            if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
+                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
                 if self.flow_dkl_step is None:
                     self.flow.dkl_w = 0
                     self.flow_dkl_step = 1.0 / self.flow_num_dkl_warmup_epochs
@@ -132,32 +133,32 @@ class FHyperMAML(MAML):
 
     def _sample_temp_step(self):
         if self.flow_temp_strategy == "Exp":
-            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
+            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
                     self.flow.epoch_property.temp_w = 1
-                    self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val, 1 / self.flow_num_temperature_warmup_epochs)
+                    self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val,
+                                              1 / self.flow_num_temperature_warmup_epochs)
                 self.flow_scale = self.flow_scale * self.flow_step
         elif self.flow_temp_strategy == "Linear":
-            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.epoch\
-                        >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
+                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_step is None:
                     self.flow.epoch_property.temp_w = 0
                     self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
                 self.flow_scale = self.flow_scale + self.flow_step
 
     def _update_flow(self):
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
-                or self.flow.epoch_property.temp_w > self.flow_stop_val:   # any numeric errors
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+                or self.flow.epoch_property.temp_w > self.flow_stop_val:  # any numeric errors
             self.flow.epoch_property.temp_w = 1
         else:
             self.flow.epoch_property.temp_w = self.flow_scale
-        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.epoch\
-                or self.flow.epoch_property.dkl_w > self.flow_stop_val:    # any numeric errors
+        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+                or self.flow.epoch_property.dkl_w > self.flow_stop_val:  # any numeric errors
             self.flow.epoch_property.dkl_w = 1
         else:
             self.flow.epoch_property.dkl_w = self.flow_dkl_scale
-
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -251,7 +252,13 @@ class FHyperMAML(MAML):
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
-                delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
+                if self.hm_maml_warmup_coef == 0.0:
+                    if self.flow_num_zeros_warmup_epochs > 0 and self.hm_maml_warmup:
+                        raise NotImplementedError("flow-zero warmup and maml-warmup not supported")
+                    delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
+                else:
+                    loss_flow = torch.tensor([0])
+
                 if total_loss_flow is None:
                     total_loss_flow = loss_flow
                 else:
@@ -284,21 +291,23 @@ class FHyperMAML(MAML):
             else:
                 weight.fast = weight.fast * update_value
 
-    def _get_p_value(self):
+    def _update_hm_maml_warmup_coef(self):
         if self.epoch < self.hm_maml_warmup_epochs:
-            return 1.0
+            self.hm_maml_warmup_coef = 1.0
+            return
         elif self.hm_maml_warmup_epochs <= self.epoch < self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs:
-            return (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (
+            self.hm_maml_warmup_coef = (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (
                     self.hm_maml_warmup_switch_epochs + 1)
-        return 0.0
+            return
+        self.hm_maml_warmup_coef = 0
 
-    def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
+    def _update_network_weights(self, delta_params_list, support_embeddings, support_data_labels,
                                 train_stage=False):
 
         if self.hm_maml_warmup and not self.single_test:
-            p = self._get_p_value()
+            self._update_hm_maml_warmup_coef()
 
-            if p > 0.0:
+            if self.hm_maml_warmup_coef > 0.0:
                 fast_parameters = []
 
                 if self.hm_maml_update_feature_net:
@@ -318,11 +327,11 @@ class FHyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
-                    flow_loss.to(loss_ce)
-
-                    # append flow loss
-                    set_loss = loss_ce - self.flow_w * flow_loss
-
+                    # flow_loss.to(loss_ce)
+                    #
+                    # # append flow loss
+                    # set_loss = loss_ce - self.flow_w * flow_loss
+                    set_loss = loss_ce
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
 
@@ -333,22 +342,22 @@ class FHyperMAML(MAML):
                     if self.hm_maml_update_feature_net:
                         # update weights of feature networ
                         for k, weight in enumerate(self.feature.parameters()):
-                            update_value = self.train_lr * p * grad[k]
+                            update_value = self.train_lr * self.hm_maml_warmup_coef * grad[k]
                             self._update_weight(weight, update_value)
 
                     classifier_offset = len(fet_fast_parameters) if self.hm_maml_update_feature_net else 0
 
-                    if p == 1:
+                    if self.hm_maml_warmup_coef == 1:
                         # update weights of classifier network by adding gradient
                         for k, weight in enumerate(self.classifier.parameters()):
                             update_value = (self.train_lr * grad[classifier_offset + k])
                             self._update_weight(weight, update_value)
 
-                    elif 0.0 < p < 1.0:
+                    elif 0.0 < self.hm_maml_warmup_coef < 1.0:
                         # update weights of classifier network by adding gradient and output of hypernetwork
                         for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = ((self.train_lr * p * grad[classifier_offset + k]) + (
-                                    (1 - p) * delta_params_list[k]))
+                            update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
+                                    (1 - self.hm_maml_warmup_coef) * delta_params_list[k]))
                             self._update_weight(weight, update_value)
             else:
                 for k, weight in enumerate(self.classifier.parameters()):
@@ -416,15 +425,13 @@ class FHyperMAML(MAML):
 
         maml_warmup_used = (
                 (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
-        # maml_warmup_used = self.epoch < 3
-        # # maml_warmup_used = False
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels)
         if not flow_loss.dim() == 0:
             flow_loss = torch.sum(flow_loss)
 
-        self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
+        self._update_network_weights(delta_params_list, support_embeddings, support_data_labels, train_stage)
 
         if self.hm_set_forward_with_adaptation and not train_stage:
             scores = self.forward(support_data)
@@ -497,7 +504,9 @@ class FHyperMAML(MAML):
 
         # train
         for i, (x, _) in enumerate(train_loader):
-            self.flow.epoch_property.curr_epoch = self.epoch
+            if self.epoch >= self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs:
+                self.flow.epoch_property.curr_epoch = self.epoch - (self.hm_maml_warmup_epochs
+                                                                    + self.hm_maml_warmup_switch_epochs)
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
@@ -522,11 +531,12 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-        self._sample_temp_step()
-        self._sample_dkl_step()
-        self._update_flow()
-        print(f"epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, temp_w {self.flow.epoch_property.temp_w}")
-
+        if self.hm_maml_warmup_coef == 0.0:
+            self._sample_temp_step()
+            self._sample_dkl_step()
+            self._update_flow()
+            print(f"epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
+                  f"temp_w {self.flow.epoch_property.temp_w}")
 
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)

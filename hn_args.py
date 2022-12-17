@@ -84,5 +84,5 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     fhypermaml_args.add_argument('--flow_dkl_strategy', default="Linear", choices=["Linear", "Exp"], help="strategy for increasing dkl loss in flow")
     fhypermaml_args.add_argument('--flow_zero_warmup_epochs', default=0, type=int,help='num of epochs for flow using zeros as sample')
     fhypermaml_args.add_argument('--flow_temp_warmup_epochs', default=50, type=int,help='num of epochs for flow using increasing scaled gauss sample')
-
+    fhypermaml_args.add_argument('--flow_zdim',default=100,type=int,help='reduced dim of flow conditioning')
     return parser
