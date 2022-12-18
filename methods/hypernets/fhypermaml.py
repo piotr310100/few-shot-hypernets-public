@@ -507,9 +507,9 @@ class FHyperMAML(MAML):
 
         # train
         for i, (x, _) in enumerate(train_loader):
-            if self.epoch >= self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs:
-                self.flow.epoch_property.curr_epoch = self.epoch - (self.hm_maml_warmup_epochs
-                                                                    + self.hm_maml_warmup_switch_epochs)
+            if self.epoch >= self.hm_maml_warmup_epochs:
+                self.flow.epoch_property.curr_epoch = self.epoch - self.hm_maml_warmup_epochs
+
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
