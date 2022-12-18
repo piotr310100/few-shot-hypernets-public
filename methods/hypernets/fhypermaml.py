@@ -534,7 +534,7 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              avg_loss / float(i + 1)))
-        if self.hm_maml_warmup_coef == 0.0:
+        if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._sample_dkl_step()
             self._update_flow()
