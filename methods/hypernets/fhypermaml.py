@@ -254,7 +254,7 @@ class FHyperMAML(MAML):
                 delta_params_shape = delta_params.shape
                 if self.hm_maml_warmup_coef < 1:
                     if self.flow_num_zeros_warmup_epochs > 0 and self.hm_maml_warmup:
-                        raise NotImplementedError("flow-zero warmup and maml-warmup not supported")
+                        raise NotImplementedError("flow-zero warmup with maml-warmup not supported")
                     delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
                 else:
                     loss_flow = torch.tensor([0])
@@ -275,6 +275,9 @@ class FHyperMAML(MAML):
             raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")
 
     def _update_weight(self, weight, update_value):
+        if self.hm_update_operator != 'minus':
+            raise NotImplementedError("flow loss formula hardcoded for minus update-operator only")
+
         if self.hm_update_operator == 'minus':
             if weight.fast is None:
                 weight.fast = weight - update_value
@@ -427,8 +430,6 @@ class FHyperMAML(MAML):
             flow_loss = torch.sum(flow_loss)
 
         self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
-        # flow_loss = flow_loss - self.flow.get_density_loss()
-
 
         if self.hm_set_forward_with_adaptation and not train_stage:
             scores = self.forward(support_data)
@@ -459,10 +460,10 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        loss = loss_ce - self.flow_w * flow_loss
-        # update loss with density loss
         if self.hm_maml_warmup_coef < 1:
-            loss = loss + self.flow_w * self.flow.get_density_loss(self.classifier.parameters())
+            flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
+
+        loss = loss_ce - self.flow_w * flow_loss
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -480,10 +481,9 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        loss = loss_ce - self.flow_w * flow_loss
-        # update loss with density loss
         if self.hm_maml_warmup_coef < 1:
-            loss = loss + self.flow_w * self.flow.get_density_loss(self.classifier.parameters())
+            flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
+        loss = loss_ce - self.flow_w * flow_loss
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
