@@ -131,7 +131,8 @@ class CRegression(nn.Module):
         self.logprob_type = args.logprob_type
         self.const_sample = self.sample_gaussian((self.hn_shape[0] * self.hn_shape[1], 1), None, self.gpu)
         self.prior_distribution = torch.distributions.MultivariateNormal(
-            torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(), torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
+            torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
+            torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
         self.epoch_property = self.EpochManager(args.num_zeros_warmup_epochs)
         self.dim_reducer_hn = torch.nn.Linear(self.hn_shape[0] * self.hn_shape[1], args.zdim)
 
@@ -151,13 +152,24 @@ class CRegression(nn.Module):
 
     def get_sample(self):
         if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.epoch_property.temp_w * self.sample_gaussian((1, 1, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
+            y = self.epoch_property.temp_w * self.sample_gaussian((1, 1, self.hn_shape[0] * self.hn_shape[1]), None,
+                                                                  self.gpu)
         else:
             y = torch.zeros(1, 1, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
         return y
-    def get_fast_weights(self,global_weight,delta_weight):
-        return torch.cat([global_weight[0], global_weight[1].reshape(-1, 1)], axis=1) - delta_weight.reshape \
-            (*self.hn_shape)
+
+    # def get_fast_weights(self, global_weight, delta_weight):
+    #     return torch.cat([global_weight[0], global_weight[1].reshape(-1, 1)], axis=1) - delta_weight.reshape \
+    #         (*self.hn_shape)
+    #
+    # def get_density_loss(self, global_weight, delta_weight):
+    #     """gets density loss for fast weights"""
+    #     return self.prior_distribution.log_prob(self.get_fast_weights(global_weight, delta_weight).flatten())
+
+    def get_density_loss(self, weights):
+        return self.prior_distribution.log_prob(torch.cat([weights[0], weights[1].reshape(-1, 1)], axis=1).flatten())
+
+
     def forward(self, x: torch.tensor, global_weights):  # x.shape = 5,65 = 5,64 + bias
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
@@ -169,15 +181,13 @@ class CRegression(nn.Module):
         # ------- LOSS ----------
         if not self.epoch_property.is_zero_warmup_epoch():
             # zaktualizowane parametry TN do liczenia lossu
-            z_prim = self.get_fast_weights(list(global_weights), delta_target_networks_weights)
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, 1, 1).to(y))
             log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)
-            # policzyc gestosci priora log N(w_i | (0,I))
-            loss_density = self.prior_distribution.log_prob(z_prim.flatten())
-            loss = self.epoch_property.dkl_w * (loss - loss_density)
+            # loss_density = self.get_density_loss(list(global_weights), delta_target_networks_weights)
+            # loss = self.epoch_property.dkl_w * (loss - loss_density)
         else:
             loss = torch.tensor([0])
         # print(f"loss flow {loss}")

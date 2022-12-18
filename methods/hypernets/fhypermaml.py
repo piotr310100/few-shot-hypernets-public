@@ -252,7 +252,7 @@ class FHyperMAML(MAML):
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
-                if self.hm_maml_warmup_coef == 0.0:
+                if self.hm_maml_warmup_coef < 1:
                     if self.flow_num_zeros_warmup_epochs > 0 and self.hm_maml_warmup:
                         raise NotImplementedError("flow-zero warmup and maml-warmup not supported")
                     delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
@@ -301,15 +301,12 @@ class FHyperMAML(MAML):
             return
         self.hm_maml_warmup_coef = 0
 
-    def _update_network_weights(self, delta_params_list, support_embeddings, support_data_labels,
+    def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
-
         if self.hm_maml_warmup and not self.single_test:
             self._update_hm_maml_warmup_coef()
-
             if self.hm_maml_warmup_coef > 0.0:
                 fast_parameters = []
-
                 if self.hm_maml_update_feature_net:
                     fet_fast_parameters = list(self.feature.parameters())
                     for weight in self.feature.parameters():
@@ -327,11 +324,10 @@ class FHyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
-                    # flow_loss.to(loss_ce)
-                    #
-                    # # append flow loss
-                    # set_loss = loss_ce - self.flow_w * flow_loss
-                    set_loss = loss_ce
+                    flow_loss.to(loss_ce)
+
+                    # append flow loss
+                    set_loss = loss_ce - self.flow_w * flow_loss
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
 
@@ -383,7 +379,6 @@ class FHyperMAML(MAML):
             self.zero_grad()
 
             support_embeddings = self.apply_embeddings_strategy(support_embeddings)
-            # print("flag1")
             delta_params, flow_loss = self.get_hn_delta_params(support_embeddings)
 
             if self.hm_save_delta_params and len(self.delta_list) == 0:
@@ -431,7 +426,9 @@ class FHyperMAML(MAML):
         if not flow_loss.dim() == 0:
             flow_loss = torch.sum(flow_loss)
 
-        self._update_network_weights(delta_params_list, support_embeddings, support_data_labels, train_stage)
+        self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
+        # flow_loss = flow_loss - self.flow.get_density_loss()
+
 
         if self.hm_set_forward_with_adaptation and not train_stage:
             scores = self.forward(support_data)
@@ -463,6 +460,9 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, query_data_labels)
         loss = loss_ce - self.flow_w * flow_loss
+        # update loss with density loss
+        if self.hm_maml_warmup_coef < 1:
+            loss = loss + self.flow_w * self.flow.get_density_loss(self.classifier.parameters())
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -481,6 +481,9 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, support_data_labels)
         loss = loss_ce - self.flow_w * flow_loss
+        # update loss with density loss
+        if self.hm_maml_warmup_coef < 1:
+            loss = loss + self.flow_w * self.flow.get_density_loss(self.classifier.parameters())
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
