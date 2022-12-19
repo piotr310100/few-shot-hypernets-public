@@ -42,7 +42,7 @@ class FHyperMAML(MAML):
         self.hn_adaptation_strategy = params.hn_adaptation_strategy
         self.hm_support_set_loss = params.hm_support_set_loss
         self.hm_maml_warmup = params.hm_maml_warmup
-        self.hm_maml_warmup_coef = 1
+        self.hm_maml_warmup_coef = 0
         self.hm_maml_warmup_epochs = params.hm_maml_warmup_epochs
         self.hm_maml_warmup_switch_epochs = params.hm_maml_warmup_switch_epochs
         self.hm_maml_update_feature_net = params.hm_maml_update_feature_net
@@ -330,6 +330,10 @@ class FHyperMAML(MAML):
                     flow_loss.to(loss_ce)
 
                     # append flow loss
+
+                    if self.hm_maml_warmup_coef < 1:
+                        flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
+
                     set_loss = loss_ce - self.flow_w * flow_loss
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
