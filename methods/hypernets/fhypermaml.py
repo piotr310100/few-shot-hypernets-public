@@ -328,11 +328,10 @@ class FHyperMAML(MAML):
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
-
                     # append flow loss
 
                     if self.hm_maml_warmup_coef < 1:
-                        flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
+                        flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
 
                     set_loss = loss_ce - self.flow_w * flow_loss
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
