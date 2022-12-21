@@ -72,6 +72,7 @@ class FHyperMAML(MAML):
         self._init_hypernet_modules(params)
         self._init_feature_net()
 
+        self.flow_num_norm_warmup_epochs = params.flow_num_norm_warmup_epochs
         self.flow_num_zeros_warmup_epochs = params.flow_zero_warmup_epochs
         self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
         self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
@@ -254,17 +255,17 @@ class FHyperMAML(MAML):
                 delta_params_shape = delta_params.shape
                 if self.hm_maml_warmup_coef < 1:
                     if self.hm_maml_warmup:
-                        if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_zeros_warmup_epochs:
+                        if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_norm_warmup_epochs:
                             #raise NotImplementedError("flow-zero warmup with maml-warmup not supported")
-                            zeros_warmup = True
+                            norm_warmup = True
                         else:
-                            zeros_warmup = False
+                            norm_warmup = False
                     else:
-                        if self.epoch < self.flow_num_zeros_warmup_epochs:
-                            zeros_warmup = True
+                        if self.epoch < self.flow_num_norm_warmup_epochs:
+                            norm_warmup = True
                         else:
-                            zeros_warmup = False
-                    delta_params, loss_flow = self.flow(delta_params, zeros_warmup)
+                            norm_warmup = False
+                    delta_params, loss_flow = self.flow(delta_params, norm_warmup)
                 else:
                     loss_flow = torch.tensor([0])
 

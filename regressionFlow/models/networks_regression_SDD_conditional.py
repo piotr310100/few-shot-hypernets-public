@@ -171,7 +171,7 @@ class CRegression(nn.Module):
             return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
         return torch.tensor([0])
 
-    def forward(self, x: torch.tensor, zeros_warmup = False):  # x.shape = 5,65 = 5,64 + bias
+    def forward(self, x: torch.tensor, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
         # 2) wylosuj sample z rozkladu normalnego
@@ -180,7 +180,7 @@ class CRegression(nn.Module):
         z = self.dim_reducer_hn(z).reshape(-1, 1)
         delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
-        if zeros_warmup:
+        if norm_warmup:
             loss = torch.norm(delta_target_networks_weights)
             return delta_target_networks_weights.reshape(self.hn_shape), loss
 
