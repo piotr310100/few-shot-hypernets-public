@@ -253,9 +253,18 @@ class FHyperMAML(MAML):
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
                 if self.hm_maml_warmup_coef < 1:
-                    if self.flow_num_zeros_warmup_epochs > 0 and self.hm_maml_warmup:
-                        raise NotImplementedError("flow-zero warmup with maml-warmup not supported")
-                    delta_params, loss_flow = self.flow(delta_params, self.classifier.parameters())
+                    if self.hm_maml_warmup:
+                        if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_zeros_warmup_epochs:
+                            #raise NotImplementedError("flow-zero warmup with maml-warmup not supported")
+                            zeros_warmup = True
+                        else:
+                            zeros_warmup = False
+                    else:
+                        if self.epoch < self.flow_num_zeros_warmup_epochs:
+                            zeros_warmup = True
+                        else:
+                            zeros_warmup = False
+                    delta_params, loss_flow = self.flow(delta_params, zeros_warmup)
                 else:
                     loss_flow = torch.tensor([0])
 
