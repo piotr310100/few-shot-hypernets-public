@@ -12,17 +12,48 @@ from torch.nn import functional as F
 import backbone
 from methods.hypernets.utils import get_param_dict, accuracy_from_scores
 from methods.maml import MAML
-from regressionFlow.models.networks_regression_SDD import HyperRegression
 from regressionFlow.models.networks_regression_SDD_conditional import CRegression
 from methods.hypernets.hypermaml import HyperNet
 
-
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
+    # tuple class for saving data to report
+    class _MetricsManager:
+        """manager for metrics to report as output to stdout/ neptune.ai for the train phase"""
+        def __init__(self,flow_w:float):
+            self.acc = []
+            self.loss = []
+            self.loss_ce = []
+            self.flow_loss = []
+            self.flow_loss_scaled = []
+            self.flow_density_loss = []
+            self.flow_w = flow_w
+        def get_metrics(self,clean_after:bool=True):
+            out = {'accuracy/train': np.asarray(self.acc).mean(),
+                    'loss': np.asarray(self.loss).mean(),
+                    'loss_ce':np.asarray(self.loss_ce).mean(),
+                    'flow_loss': np.asarray(self.flow_loss).mean(),
+                    'flow_loss_scaled': np.asarray(self.flow_loss_scaled).mean(),
+                    'flow_density_loss': np.asarray(self.flow_density_loss).mean()}
+            if clean_after:
+                self.acc = []
+                self.loss = []
+                self.loss_ce = []
+                self.flow_loss = []
+                self.flow_loss_scaled = []
+                self.flow_density_loss = []
+            return out
+        def append(self, atrib_name, value):
+            assert atrib_name in ['acc','loss','loss_ce','flow_loss','flow_density_loss'], "invalid atrib name"
+            if type(value) is torch.Tensor:
+                value = value.item()
+            if atrib_name == 'flow_loss' and self.flow_w is not None:
+                self.flow_loss_scaled.append(value * self.flow_w)
+            getattr(self, atrib_name).append(value)
+
     def __init__(self, model_func, n_way, n_support, n_query, params=None, approx=False):
         super(FHyperMAML, self).__init__(model_func, n_way, n_support, n_query, params=params)
         self.loss_fn = nn.CrossEntropyLoss()
-
         self.hn_tn_hidden_size = params.hn_tn_hidden_size
         self.hn_tn_depth = params.hn_tn_depth
         self._init_classifier()
@@ -109,6 +140,7 @@ class FHyperMAML(MAML):
 
         # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
+        self.manager = self._MetricsManager(self.flow_w)
         self.flow_scale = params.flow_scale
         self.flow_dkl_scale = params.flow_scale
         self.flow_stop_val = params.flow_stop_val
@@ -240,6 +272,7 @@ class FHyperMAML(MAML):
 
         if self.hm_use_class_batch_input:
             delta_params_list = []
+            density_loss_list = []
 
             total_loss_flow = None
             for name, param_net in self.hypernet_heads.items():
@@ -265,7 +298,12 @@ class FHyperMAML(MAML):
                             norm_warmup = True
                         else:
                             norm_warmup = False
+                    # ['acc','loss','loss_ce','flow_loss','flow_density_loss']
                     delta_params, loss_flow = self.flow(delta_params, norm_warmup)
+                    # experiment1: get and save density loss of delta params
+                    density_loss = self.flow.get_density_loss(delta_params)
+                    density_loss_list.append(density_loss)
+                    loss_flow = loss_flow - density_loss
                 else:
                     loss_flow = torch.tensor([0])
 
@@ -279,6 +317,8 @@ class FHyperMAML(MAML):
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
 
+            self.manager.append('flow_loss', total_loss_flow)
+            self.manager.append('flow_density_loss', np.asarray(density_loss_list).mean())
             return delta_params_list, total_loss_flow
 
         else:
@@ -338,10 +378,9 @@ class FHyperMAML(MAML):
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
                     flow_loss.to(loss_ce)
-                    # append flow loss
 
-                    if self.hm_maml_warmup_coef < 1:
-                        flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
+                    # if self.hm_maml_warmup_coef < 1:
+                    #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
 
                     set_loss = loss_ce - self.flow_w * flow_loss
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
@@ -439,8 +478,8 @@ class FHyperMAML(MAML):
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels)
-        if not flow_loss.dim() == 0:
-            flow_loss = torch.sum(flow_loss)
+        # if not flow_loss.dim() == 0:
+        #     flow_loss = torch.sum(flow_loss)
 
         self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
 
@@ -473,30 +512,32 @@ class FHyperMAML(MAML):
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
         loss_ce = self.loss_fn(scores, query_data_labels)
-        if self.hm_maml_warmup_coef < 1:
-            flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
 
         loss = loss_ce - self.flow_w * flow_loss
 
+        self.manager.append('loss_ce', loss_ce)
+
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
+        self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
         y_labels = query_data_labels.cpu().numpy()
         top1_correct = np.sum(topk_ind == y_labels)
         task_accuracy = (top1_correct / len(query_data_labels)) * 100
-
-        return loss, task_accuracy, flow_loss
+        self.manager.append('acc',task_accuracy)
 
     def set_forward_loss_with_adaptation(self, x):
         scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        if self.hm_maml_warmup_coef < 1:
-            flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
+        self.manager.append('loss_ce',loss_ce)
+        # if self.hm_maml_warmup_coef < 1:
+        #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
         loss = loss_ce - self.flow_w * flow_loss
+        self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
@@ -508,12 +549,12 @@ class FHyperMAML(MAML):
 
     def train_loop(self, epoch, train_loader, optimizer):  # overwrite parrent function
         print_freq = 10
-        avg_loss = 0
         task_count = 0
-        loss_all = []
-        flow_loss = []
-        flow_loss_scaled = []
-        acc_all = []
+        # avg_loss = 0
+        # loss_all = []
+        # flow_loss = []
+        # flow_loss_scaled = []
+        # acc_all = []
         optimizer.zero_grad()
 
         self.delta_list = []
@@ -526,27 +567,26 @@ class FHyperMAML(MAML):
             self.n_query = x.size(1) - self.n_support
             assert self.n_way == x.size(0), "MAML do not support way change"
 
-            loss, task_accuracy, loss_flow = self.set_forward_loss(x)
-            avg_loss = avg_loss + loss.item()  # .data[0]
-            flow_loss.append(loss_flow.item())
-            flow_loss_scaled.append(loss_flow.item() * self.flow_w)
-            loss_all.append(loss)
-            acc_all.append(task_accuracy)
+            self.set_forward_loss(x)
+            # avg_loss = avg_loss + loss.item()  # .data[0]
+            # flow_loss.append(loss_flow.item())
+            # flow_loss_scaled.append(loss_flow.item() * self.flow_w)
+            # loss_all.append(loss)
+            # acc_all.append(task_accuracy)
 
             task_count += 1
 
             if task_count == self.n_task:  # MAML update several tasks at one time
-                loss_q = torch.stack(loss_all).sum(0)
+                loss_q = torch.stack(self.manager.loss).sum(0)
                 loss_q.backward()
-
                 optimizer.step()
                 task_count = 0
-                loss_all = []
+                # loss_all = []
             optimizer.zero_grad()
             if i % print_freq == 0:
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
-                                                                             avg_loss / float(i + 1)))
+                                                                             sum(self.manager.loss) / float(i + 1)))
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._sample_dkl_step()
@@ -554,18 +594,18 @@ class FHyperMAML(MAML):
             print(f"epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
                   f"temp_w {self.flow.epoch_property.temp_w}")
 
-        acc_all = np.asarray(acc_all)
-        acc_mean = np.mean(acc_all)
-
-        flow_loss_all = np.asarray(flow_loss)
-        flow_loss_mean = np.mean(flow_loss_all)
-
-        flow_loss_scaled_all = np.asarray(flow_loss_scaled)
-        flow_loss_scaled_mean = np.mean(flow_loss_scaled_all)
-
-        metrics = {"accuracy/train": acc_mean}
-        metrics['flow_loss'] = flow_loss_mean
-        metrics['flow_loss_scaled'] = flow_loss_scaled_mean
+        # acc_all = np.asarray(acc_all)
+        # acc_mean = np.mean(acc_all)
+        # flow_loss_all = np.asarray(flow_loss)
+        # flow_loss_mean = np.mean(flow_loss_all)
+        #
+        # flow_loss_scaled_all = np.asarray(flow_loss_scaled)
+        # flow_loss_scaled_mean = np.mean(flow_loss_scaled_all)
+        #
+        # metrics = {"accuracy/train": acc_mean}
+        # metrics['flow_loss'] = flow_loss_mean
+        # metrics['flow_loss_scaled'] = flow_loss_scaled_mean
+        metrics = self.manager.get_metrics(clean_after=True)
 
         if self.hn_adaptation_strategy == 'increasing_alpha':
             metrics['alpha'] = self.alpha

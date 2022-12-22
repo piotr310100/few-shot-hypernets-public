@@ -162,14 +162,14 @@ class CRegression(nn.Module):
     #     return torch.cat([global_weight[0], global_weight[1].reshape(-1, 1)], axis=1) - delta_weight.reshape \
     #         (*self.hn_shape)
     #
-    # def get_density_loss(self, global_weight, delta_weight):
-    #     """gets density loss for fast weights"""
-    #     return self.prior_distribution.log_prob(self.get_fast_weights(global_weight, delta_weight).flatten())
+    def get_density_loss(self, delta_weight:torch.tensor):
+        """gets density loss for the output of hypernetwork"""
+        return self.prior_distribution.log_prob(delta_weight.flatten())
 
-    def get_density_loss(self, weights):
-        if weights[0].fast is not None:
-            return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
-        return torch.tensor([0])
+    # def get_density_loss(self, weights):
+    #     if weights[0].fast is not None:
+    #         return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
+    #     return torch.tensor([0])
 
     def forward(self, x: torch.tensor, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
