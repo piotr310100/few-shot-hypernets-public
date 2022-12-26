@@ -181,7 +181,7 @@ class CRegression(nn.Module):
         delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
         if norm_warmup:
-            loss = torch.norm(delta_target_networks_weights)
+            loss = torch.linalg.vector_norm(delta_target_networks_weights, dim = None)
             return delta_target_networks_weights.reshape(self.hn_shape), loss
 
         if not self.epoch_property.is_zero_warmup_epoch():

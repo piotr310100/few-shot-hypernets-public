@@ -28,8 +28,10 @@ class FHyperMAML(MAML):
             self.flow_loss = []
             self.flow_loss_scaled = []
             self.flow_density_loss = []
+            self.theta_norm = []
+            self.delta_theta_norm = []
             self.flow_w = flow_w
-            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss']
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss', 'theta_norm', 'delta_theta_norm']
 
         def clear_field(self,atrib_name):
             self.assert_exist(atrib_name)
@@ -44,7 +46,10 @@ class FHyperMAML(MAML):
                     'loss_ce':torch.stack(self.loss_ce).mean(dtype=torch.float).item(),
                     'flow_loss': torch.stack(self.flow_loss).mean(dtype=torch.float).item(),
                     'flow_loss_scaled': torch.stack(self.flow_loss_scaled).mean(dtype=torch.float).item(),
-                    'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item()}
+                    'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item(),
+                    'theta_norm': torch.stack(self.theta_norm).mean(dtype=torch.float).item(),
+                    'delta_theta_norm': torch.stack(self.delta_theta_norm).mean(dtype=torch.float).item()
+                    }
             if clean_after:
                 self.acc = []
                 self.loss = []
@@ -52,6 +57,8 @@ class FHyperMAML(MAML):
                 self.flow_loss = []
                 self.flow_loss_scaled = []
                 self.flow_density_loss = []
+                self.theta_norm = []
+                self.delta_theta_norm = []
             return out
         def append(self, atrib_name, value):
             self.assert_exist(atrib_name)
@@ -309,6 +316,7 @@ class FHyperMAML(MAML):
                         else:
                             norm_warmup = False
                     delta_params, loss_flow = self.flow(delta_params, norm_warmup)
+                    self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim = None))
                     # experiment1: get and save density loss of delta params
                     density_loss = self.flow.get_density_loss(delta_params)
                     density_loss_list.append(density_loss)
@@ -431,6 +439,15 @@ class FHyperMAML(MAML):
             for k, weight in enumerate(self.classifier.parameters()):
                 update_value = delta_params_list[k]
                 self._update_weight(weight, update_value)
+
+        def group_layers(lst):
+            for i in range(0, len(lst), 2):
+                yield lst[i:i+2]
+
+        for w, b in group_layers(list(self.classifier.parameters())):
+            weights = torch.cat([w.fast, b.fast.reshape(-1, 1)], axis=1)
+            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = None))
+
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels):
         flow_loss = torch.tensor([0]).cuda()
