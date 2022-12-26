@@ -17,9 +17,10 @@ from methods.hypernets.hypermaml import HyperNet
 
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
-    # tuple class for saving data to report
     class _MetricsManager:
         """manager for metrics to report as output to stdout/ neptune.ai for the train phase"""
+        def assert_exist(self, atrib_name):
+            assert atrib_name in self.atribs, "invalid atrib name"
         def __init__(self,flow_w:float):
             self.acc = []
             self.loss = []
@@ -28,13 +29,22 @@ class FHyperMAML(MAML):
             self.flow_loss_scaled = []
             self.flow_density_loss = []
             self.flow_w = flow_w
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss']
+
+        def clear_field(self,atrib_name):
+            self.assert_exist(atrib_name)
+            getattr(self,atrib_name).clear()
         def get_metrics(self,clean_after:bool=True):
+            for atrib in self.atribs:
+                if not getattr(self,atrib):
+                    self.append(atrib,torch.tensor([0]).cuda())
+            #print(self.flow_loss)
             out = {'accuracy/train': np.asarray(self.acc).mean(),
-                    'loss': np.asarray(self.loss).mean(),
-                    'loss_ce':np.asarray(self.loss_ce).mean(),
-                    'flow_loss': np.asarray(self.flow_loss).mean(),
-                    'flow_loss_scaled': np.asarray(self.flow_loss_scaled).mean(),
-                    'flow_density_loss': np.asarray(self.flow_density_loss).mean()}
+                    'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),
+                    'loss_ce':torch.stack(self.loss_ce).mean(dtype=torch.float).item(),
+                    'flow_loss': torch.stack(self.flow_loss).mean(dtype=torch.float).item(),
+                    'flow_loss_scaled': torch.stack(self.flow_loss_scaled).mean(dtype=torch.float).item(),
+                    'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item()}
             if clean_after:
                 self.acc = []
                 self.loss = []
@@ -44,9 +54,9 @@ class FHyperMAML(MAML):
                 self.flow_density_loss = []
             return out
         def append(self, atrib_name, value):
-            assert atrib_name in ['acc','loss','loss_ce','flow_loss','flow_density_loss'], "invalid atrib name"
+            self.assert_exist(atrib_name)
             if type(value) is torch.Tensor:
-                value = value.item()
+                value = value.squeeze().cuda()
             if atrib_name == 'flow_loss' and self.flow_w is not None:
                 self.flow_loss_scaled.append(value * self.flow_w)
             getattr(self, atrib_name).append(value)
@@ -298,7 +308,6 @@ class FHyperMAML(MAML):
                             norm_warmup = True
                         else:
                             norm_warmup = False
-                    # ['acc','loss','loss_ce','flow_loss','flow_density_loss']
                     delta_params, loss_flow = self.flow(delta_params, norm_warmup)
                     # experiment1: get and save density loss of delta params
                     density_loss = self.flow.get_density_loss(delta_params)
@@ -317,8 +326,12 @@ class FHyperMAML(MAML):
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
 
+            total_loss_flow.cuda()
             self.manager.append('flow_loss', total_loss_flow)
-            self.manager.append('flow_density_loss', np.asarray(density_loss_list).mean())
+
+            if not density_loss_list:
+                density_loss_list = [torch.tensor([0]).cuda()]
+            self.manager.append('flow_density_loss', torch.stack(density_loss_list).mean(dtype=torch.float))
             return delta_params_list, total_loss_flow
 
         else:
@@ -377,12 +390,12 @@ class FHyperMAML(MAML):
                     scores = self.classifier(support_embeddings)
 
                     loss_ce = self.loss_fn(scores, support_data_labels)
-                    flow_loss.to(loss_ce)
 
                     # if self.hm_maml_warmup_coef < 1:
                     #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
 
-                    set_loss = loss_ce - self.flow_w * flow_loss
+                    set_loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
+
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
 
@@ -420,6 +433,7 @@ class FHyperMAML(MAML):
                 self._update_weight(weight, update_value)
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels):
+        flow_loss = torch.tensor([0]).cuda()
         if not maml_warmup_used:
             if self.enhance_embeddings:
                 with torch.no_grad():
@@ -441,7 +455,7 @@ class FHyperMAML(MAML):
 
             return delta_params, flow_loss
         else:
-            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()]
+            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()],flow_loss
 
     def forward(self, x):
         out = self.feature.forward(x)
@@ -513,7 +527,7 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, query_data_labels)
 
-        loss = loss_ce - self.flow_w * flow_loss
+        loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
 
         self.manager.append('loss_ce', loss_ce)
 
@@ -536,7 +550,7 @@ class FHyperMAML(MAML):
         self.manager.append('loss_ce',loss_ce)
         # if self.hm_maml_warmup_coef < 1:
         #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
-        loss = loss_ce - self.flow_w * flow_loss
+        loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
         self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
@@ -581,17 +595,19 @@ class FHyperMAML(MAML):
                 loss_q.backward()
                 optimizer.step()
                 task_count = 0
+                self.manager.clear_field('loss')
                 # loss_all = []
             optimizer.zero_grad()
             if i % print_freq == 0:
+                #print(self.manager.loss)
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
-                                                                             sum(self.manager.loss) / float(i + 1)))
+                                                                             torch.stack(self.manager.loss).sum().item() / float(i + 1)))
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._sample_dkl_step()
             self._update_flow()
-            print(f"epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
+            print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
                   f"temp_w {self.flow.epoch_property.temp_w}")
 
         # acc_all = np.asarray(acc_all)
