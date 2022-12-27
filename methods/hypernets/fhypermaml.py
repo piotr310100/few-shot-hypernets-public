@@ -28,11 +28,11 @@ class FHyperMAML(MAML):
             self.flow_loss = []
             self.flow_loss_scaled = []
             self.flow_density_loss = []
-            self.flow_loss_with_density = []
+            self.flow_loss_raw = []
             self.theta_norm = []
             self.delta_theta_norm = []
             self.flow_w = flow_w
-            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss','flow_loss_with_density', 'theta_norm', 'delta_theta_norm']
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss','flow_loss_raw', 'theta_norm', 'delta_theta_norm']
 
         def clear_field(self,atrib_name):
             self.assert_exist(atrib_name)
@@ -48,7 +48,7 @@ class FHyperMAML(MAML):
                     'flow_loss': torch.stack(self.flow_loss).mean(dtype=torch.float).item(),    # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
                     'flow_loss_scaled': torch.stack(self.flow_loss_scaled).mean(dtype=torch.float).item(),  # loss_flow * flow_w
                     'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item(),    # density component before scaling with flow_w
-                    'flow_loss_with_density': torch.stack(self.flow_loss_with_density).mean(dtype=torch.float).item(), # loss_flow before substracting density component (and before scaling with flow_w)
+                    'flow_loss_raw': torch.stack(self.flow_loss_raw).mean(dtype=torch.float).item(), # loss_flow before substracting density component (and before scaling with flow_w)
                     'theta_norm': torch.stack(self.theta_norm).mean(dtype=torch.float).item(),
                     'delta_theta_norm': torch.stack(self.delta_theta_norm).mean(dtype=torch.float).item()
                     }
@@ -59,7 +59,7 @@ class FHyperMAML(MAML):
                 self.flow_loss = []
                 self.flow_loss_scaled = []
                 self.flow_density_loss = []
-                self.flow_loss_with_density = []
+                self.flow_loss_raw = []
                 self.theta_norm = []
                 self.delta_theta_norm = []
             return out
@@ -293,7 +293,7 @@ class FHyperMAML(MAML):
         if self.hm_use_class_batch_input:
             delta_params_list = []
             density_loss_list = []
-
+            raw_loss_flow_list = []
             total_loss_flow = None
             for name, param_net in self.hypernet_heads.items():
 
@@ -319,7 +319,7 @@ class FHyperMAML(MAML):
                             norm_warmup = False
                     delta_params, loss_flow = self.flow(delta_params, norm_warmup)
                     density_loss = self.flow.get_density_loss(delta_params)
-                    self.manager.append('flow_loss_with_density', loss_flow)
+                    raw_loss_flow_list.append(loss_flow)
                     density_loss_list.append(density_loss)  # before scaling
                     loss_flow = self.flow.epoch_property.dkl_w * (loss_flow - density_loss)
                 else:
@@ -342,6 +342,9 @@ class FHyperMAML(MAML):
             if not density_loss_list:
                 density_loss_list = [torch.tensor([0]).cuda()]
             self.manager.append('flow_density_loss', torch.stack(density_loss_list).mean(dtype=torch.float))
+            if not raw_loss_flow_list:
+                raw_loss_flow_list = [torch.tensor([0]).cuda()]
+            self.manager.append('flow_loss_raw', torch.stack(raw_loss_flow_list).mean(dtype=torch.float))
             return delta_params_list, total_loss_flow
 
         else:
