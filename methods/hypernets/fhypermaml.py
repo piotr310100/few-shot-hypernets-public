@@ -14,9 +14,63 @@ from methods.hypernets.utils import get_param_dict, accuracy_from_scores
 from methods.maml import MAML
 from regressionFlow.models.networks_regression_SDD_conditional import CRegression
 from methods.hypernets.hypermaml import HyperNet
-from utils import FMetricsManager
+
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
+    class _MetricsManager:
+        """manager for metrics to report as output to stdout/ neptune.ai for the train phase"""
+        def assert_exist(self, atrib_name):
+            assert atrib_name in self.atribs, "invalid atrib name"
+        def __init__(self,flow_w:float):
+            self.acc = []
+            self.loss = []
+            self.loss_ce = []
+            self.flow_loss = []
+            self.flow_loss_scaled = []
+            self.flow_density_loss = []
+            self.flow_loss_raw = []
+            self.theta_norm = []
+            self.delta_theta_norm = []
+            self.flow_w = flow_w
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss','flow_loss_raw', 'theta_norm', 'delta_theta_norm']
+
+        def clear_field(self,atrib_name):
+            self.assert_exist(atrib_name)
+            getattr(self,atrib_name).clear()
+        def get_metrics(self,clean_after:bool=True):
+            for atrib in self.atribs:
+                if not getattr(self,atrib):
+                    self.append(atrib,torch.tensor([0]).cuda())
+            #print(self.flow_loss)
+            out = {'accuracy/train': np.asarray(self.acc).mean(),
+                    'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),  # loss := loss_ce - flow_w * loss_flow
+                    'loss_ce':torch.stack(self.loss_ce).mean(dtype=torch.float).item(),
+                    'flow_loss': torch.stack(self.flow_loss).mean(dtype=torch.float).item(),    # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
+                    'flow_loss_scaled': torch.stack(self.flow_loss_scaled).mean(dtype=torch.float).item(),  # loss_flow * flow_w
+                    'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item(),    # density component before scaling with flow_w
+                    'flow_loss_raw': torch.stack(self.flow_loss_raw).mean(dtype=torch.float).item(), # loss_flow before substracting density component (and before scaling with flow_w)
+                    'theta_norm': torch.stack(self.theta_norm).mean(dtype=torch.float).item(),
+                    'delta_theta_norm': torch.stack(self.delta_theta_norm).mean(dtype=torch.float).item()
+                    }
+            if clean_after:
+                self.acc = []
+                self.loss = []
+                self.loss_ce = []
+                self.flow_loss = []
+                self.flow_loss_scaled = []
+                self.flow_density_loss = []
+                self.flow_loss_raw = []
+                self.theta_norm = []
+                self.delta_theta_norm = []
+            return out
+        def append(self, atrib_name, value):
+            self.assert_exist(atrib_name)
+            if type(value) is torch.Tensor:
+                value = value.squeeze().cuda()
+            if atrib_name == 'flow_loss' and self.flow_w is not None:
+                self.flow_loss_scaled.append(value * self.flow_w)
+            getattr(self, atrib_name).append(value)
+
     def __init__(self, model_func, n_way, n_support, n_query, params=None, approx=False):
         super(FHyperMAML, self).__init__(model_func, n_way, n_support, n_query, params=params)
         self.loss_fn = nn.CrossEntropyLoss()
@@ -106,7 +160,7 @@ class FHyperMAML(MAML):
 
         # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
-        self.manager = FMetricsManager(self.flow_w)
+        self.manager = self._MetricsManager(self.flow_w)
         self.flow_scale = params.flow_scale
         self.flow_dkl_scale = params.flow_scale
         self.flow_stop_val = params.flow_stop_val
