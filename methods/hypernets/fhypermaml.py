@@ -407,7 +407,7 @@ class FHyperMAML(MAML):
                     # if self.hm_maml_warmup_coef < 1:
                     #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
 
-                    set_loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
+                    set_loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
 
                     grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
                                                allow_unused=True)  # build full graph support gradient of gradient
@@ -549,7 +549,7 @@ class FHyperMAML(MAML):
 
         loss_ce = self.loss_fn(scores, query_data_labels)
 
-        loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
+        loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
 
         self.manager.append('loss_ce', loss_ce)
 
@@ -572,7 +572,7 @@ class FHyperMAML(MAML):
         self.manager.append('loss_ce',loss_ce)
         # if self.hm_maml_warmup_coef < 1:
         #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
-        loss = loss_ce - self.flow_w * flow_loss.to(loss_ce)
+        loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
         self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
