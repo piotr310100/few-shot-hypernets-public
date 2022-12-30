@@ -32,7 +32,7 @@ class FHyperMAML(MAML):
             self.theta_norm = []
             self.delta_theta_norm = []
             self.flow_w = flow_w
-            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_density_loss','flow_loss_raw', 'theta_norm', 'delta_theta_norm']
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss','flow_loss_scaled', 'flow_density_loss','flow_loss_raw', 'theta_norm', 'delta_theta_norm']
 
         def clear_field(self,atrib_name):
             self.assert_exist(atrib_name)
@@ -44,24 +44,17 @@ class FHyperMAML(MAML):
             #print(self.flow_loss)
             out = {'accuracy/train': np.asarray(self.acc).mean(),
                     'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),  # loss := loss_ce - flow_w * loss_flow
-                    'loss_ce':torch.stack(self.loss_ce).mean(dtype=torch.float).item(),
-                    'flow_loss': torch.stack(self.flow_loss).mean(dtype=torch.float).item(),    # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
-                    'flow_loss_scaled': torch.stack(self.flow_loss_scaled).mean(dtype=torch.float).item(),  # loss_flow * flow_w
-                    'flow_density_loss': torch.stack(self.flow_density_loss).mean(dtype=torch.float).item(),    # density component before scaling with flow_w
-                    'flow_loss_raw': torch.stack(self.flow_loss_raw).mean(dtype=torch.float).item(), # loss_flow before substracting density component (and before scaling with flow_w)
-                    'theta_norm': torch.stack(self.theta_norm).mean(dtype=torch.float).item(),
-                    'delta_theta_norm': torch.stack(self.delta_theta_norm).mean(dtype=torch.float).item()
+                    'loss_ce':np.asarray(self.loss_ce).mean(),
+                    'flow_loss': np.asarray(self.flow_loss).mean(),    # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
+                    'flow_loss_scaled': np.asarray(self.flow_loss_scaled).mean(),  # loss_flow * flow_w
+                    'flow_density_loss': np.asarray(self.flow_density_loss).mean(),    # density component before scaling with flow_w
+                    'flow_loss_raw': np.asarray(self.flow_loss_raw).mean(), # loss_flow before substracting density component (and before scaling with flow_w)
+                    'theta_norm': np.asarray(self.theta_norm).mean(),
+                    'delta_theta_norm': np.asarray(self.delta_theta_norm).mean()
                     }
             if clean_after:
-                self.acc = []
-                self.loss = []
-                self.loss_ce = []
-                self.flow_loss = []
-                self.flow_loss_scaled = []
-                self.flow_density_loss = []
-                self.flow_loss_raw = []
-                self.theta_norm = []
-                self.delta_theta_norm = []
+                for atrib in self.atribs:
+                    getattr(self,atrib).clear()
             return out
         def append(self, atrib_name, value):
             self.assert_exist(atrib_name)
@@ -330,21 +323,21 @@ class FHyperMAML(MAML):
                 else:
                     total_loss_flow = total_loss_flow + loss_flow
 
-                self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=None))
+                self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=None).item())
                 delta_params = delta_params.reshape(delta_params_shape)
                 weights_delta = delta_params[:, :-bias_neurons_num]
                 bias_delta = delta_params[:, -bias_neurons_num:].flatten()
                 delta_params_list.extend([weights_delta, bias_delta])
 
             total_loss_flow.cuda()
-            self.manager.append('flow_loss', total_loss_flow)
+            self.manager.append('flow_loss', total_loss_flow.item())
 
             if not density_loss_list:
                 density_loss_list = [torch.tensor([0]).cuda()]
-            self.manager.append('flow_density_loss', torch.stack(density_loss_list).mean(dtype=torch.float))
+            self.manager.append('flow_density_loss', torch.stack(density_loss_list).mean(dtype=torch.float).item())
             if not raw_loss_flow_list:
                 raw_loss_flow_list = [torch.tensor([0]).cuda()]
-            self.manager.append('flow_loss_raw', torch.stack(raw_loss_flow_list).mean(dtype=torch.float))
+            self.manager.append('flow_loss_raw', torch.stack(raw_loss_flow_list).mean(dtype=torch.float).item())
             return delta_params_list, total_loss_flow
 
         else:
@@ -451,7 +444,7 @@ class FHyperMAML(MAML):
 
         for w, b in group_layers(list(self.classifier.parameters())):
             weights = torch.cat([w.fast, b.fast.reshape(-1, 1)], axis=1)
-            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = None))
+            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = None).item())
 
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels):
@@ -551,7 +544,7 @@ class FHyperMAML(MAML):
 
         loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
 
-        self.manager.append('loss_ce', loss_ce)
+        self.manager.append('loss_ce', loss_ce.item())
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -569,7 +562,7 @@ class FHyperMAML(MAML):
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        self.manager.append('loss_ce',loss_ce)
+        self.manager.append('loss_ce',loss_ce.item())
         # if self.hm_maml_warmup_coef < 1:
         #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
         loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
@@ -624,7 +617,7 @@ class FHyperMAML(MAML):
                 #print(self.manager.loss)
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
-                                                                             torch.stack(self.manager.loss).sum().item() / float(i + 1)))
+                                                                             torch.stack(self.manager.loss).sum(0).item() / float(i + 1)))
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._sample_dkl_step()
