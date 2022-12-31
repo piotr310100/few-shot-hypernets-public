@@ -125,12 +125,16 @@ class FHyperMAML(MAML):
         self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
         self.flow_temp_strategy = params.flow_temp_strategy
         self.flow_dkl_strategy = params.flow_dkl_strategy
+        self.num_points_train = params.num_points_train
+        self.num_points_test = params.num_points_test
+
         self.flow_args = Namespace(shape1=5, shape2=65, num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs,
                                    model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=False,
-                                   sync_bn=False, bn_lag=0, zdim=params.flow_zdim,
+                                   sync_bn=False, bn_lag=0, zdim=params.flow_zdim, num_points_train = self.num_points_train,
+                                   num_points_test = self.num_points_test,
                                    #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
                                    root_dir=None, use_latent_flow=False,
                                    use_deterministic_encoder=False,
@@ -282,7 +286,7 @@ class FHyperMAML(MAML):
     def get_support_data_labels(self):
         return torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()  # labels for support data
 
-    def get_hn_delta_params(self, support_embeddings):
+    def get_hn_delta_params(self, support_embeddings, train_stage):
         if self.hm_detach_before_hyper_net:
             support_embeddings = support_embeddings.detach()
 
@@ -313,7 +317,7 @@ class FHyperMAML(MAML):
                             norm_warmup = True
                         else:
                             norm_warmup = False
-                    delta_params, loss_flow = self.flow(delta_params, norm_warmup)
+                    delta_params, loss_flow = self.flow(delta_params, train_stage, norm_warmup)
                     density_loss = self.flow.get_density_loss(delta_params)
                     raw_loss_flow_list.append(loss_flow)
                     density_loss_list.append(density_loss)  # before scaling
@@ -450,7 +454,7 @@ class FHyperMAML(MAML):
             self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = None).item())
 
 
-    def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels):
+    def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels, train_stage):
         flow_loss = torch.tensor([0]).cuda()
         if not maml_warmup_used:
             if self.enhance_embeddings:
@@ -466,7 +470,7 @@ class FHyperMAML(MAML):
             self.zero_grad()
 
             support_embeddings = self.apply_embeddings_strategy(support_embeddings)
-            delta_params, flow_loss = self.get_hn_delta_params(support_embeddings)
+            delta_params, flow_loss = self.get_hn_delta_params(support_embeddings, train_stage)
 
             if self.hm_save_delta_params and len(self.delta_list) == 0:
                 self.delta_list = [{'delta_params': delta_params}]
@@ -509,7 +513,7 @@ class FHyperMAML(MAML):
                 (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
-                                                                      support_data_labels)
+                                                                      support_data_labels, train_stage)
         # if not flow_loss.dim() == 0:
         #     flow_loss = torch.sum(flow_loss)
 

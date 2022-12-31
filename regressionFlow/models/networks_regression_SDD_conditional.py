@@ -135,6 +135,8 @@ class CRegression(nn.Module):
             torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
         self.epoch_property = self.EpochManager(args.num_zeros_warmup_epochs)
         self.dim_reducer_hn = torch.nn.Linear(self.hn_shape[0] * self.hn_shape[1], args.zdim)
+        self.num_points_train = args.num_points_train
+        self.num_points_test = args.num_points_test
 
     def make_optimizer(self, args):
         def _get_opt_(params):
@@ -150,12 +152,12 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def get_sample(self):
+    def get_sample(self, num_points):
         if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.epoch_property.temp_w * self.sample_gaussian((1, 1, self.hn_shape[0] * self.hn_shape[1]), None,
+            y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
                                                                   self.gpu)
         else:
-            y = torch.zeros(1, 1, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
+            y = torch.zeros(1, num_points, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
         return y
 
     # def get_fast_weights(self, global_weight, delta_weight):
@@ -171,23 +173,28 @@ class CRegression(nn.Module):
     #         return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
     #     return torch.tensor([0])
 
-    def forward(self, x: torch.tensor, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
+    def forward(self, x: torch.tensor, train_stage, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
         # 2) wylosuj sample z rozkladu normalnego
-        y = self.get_sample()
+        num_points = self.num_points_train if train_stage else self.num_points_test
+        y = self.get_sample(num_points)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
-        z = self.dim_reducer_hn(z).reshape(-1, 1)
+        z = self.dim_reducer_hn(z).reshape(-1)
         delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
         if norm_warmup:
-            loss = torch.linalg.vector_norm(delta_target_networks_weights, dim = None)
+            delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
+            loss = torch.linalg.vector_norm(delta_target_networks_weights, dim = 1).mean()
+            delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
             return delta_target_networks_weights.reshape(self.hn_shape), loss
 
         if not self.epoch_property.is_zero_warmup_epoch():
             # zaktualizowane parametry TN do liczenia lossu
-            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, 1, 1).to(y))
-            log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
+            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
+            # tu byly wczesniej sumy
+            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+            log_py = standard_normal_logprob(y2).view(1, -1).mean(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)
@@ -196,6 +203,8 @@ class CRegression(nn.Module):
         else:
             loss = torch.tensor([0])
         # print(f"loss flow {loss}")
+        delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
+        delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
         return delta_target_networks_weights.reshape(self.hn_shape), loss
 
     @staticmethod
