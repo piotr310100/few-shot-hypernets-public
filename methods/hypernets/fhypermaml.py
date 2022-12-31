@@ -40,7 +40,10 @@ class FHyperMAML(MAML):
         def get_metrics(self,clean_after:bool=True):
             for atrib in self.atribs:
                 if not getattr(self,atrib):
-                    self.append(atrib,torch.tensor([0]).cuda())
+                    if atrib == 'loss':
+                        self.append(atrib, torch.tensor([0]).cuda())
+                    else:
+                        self.append(atrib, 0)
             #print(self.flow_loss)
             out = {'accuracy/train': np.asarray(self.acc).mean(),
                     'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),  # loss := loss_ce - flow_w * loss_flow
