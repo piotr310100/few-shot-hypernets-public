@@ -164,9 +164,9 @@ class CRegression(nn.Module):
     #     return torch.cat([global_weight[0], global_weight[1].reshape(-1, 1)], axis=1) - delta_weight.reshape \
     #         (*self.hn_shape)
     #
-    def get_density_loss(self, delta_weight:torch.tensor):
+    def get_density_loss(self, delta_weights:torch.tensor):
         """gets density loss for the output of hypernetwork"""
-        return self.prior_distribution.log_prob(delta_weight.flatten())
+        return self.prior_distribution.log_prob(delta_weights).mean()
 
     # def get_density_loss(self, weights):
     #     if weights[0].fast is not None:
@@ -186,15 +186,15 @@ class CRegression(nn.Module):
         if norm_warmup:
             delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
             loss = torch.linalg.vector_norm(delta_target_networks_weights, dim = 1).mean()
-            delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
-            return delta_target_networks_weights.reshape(self.hn_shape), loss
+            #delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
+            return delta_target_networks_weights, loss
 
         if not self.epoch_property.is_zero_warmup_epoch():
             # zaktualizowane parametry TN do liczenia lossu
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
             # tu byly wczesniej sumy
-            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
-            log_py = standard_normal_logprob(y2).view(1, -1).mean(1, keepdim=True)
+            delta_log_py = delta_log_py.view(1, num_points, 1).sum(1)
+            log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)
@@ -204,8 +204,8 @@ class CRegression(nn.Module):
             loss = torch.tensor([0])
         # print(f"loss flow {loss}")
         delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
-        delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
-        return delta_target_networks_weights.reshape(self.hn_shape), loss
+        #delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
+        return delta_target_networks_weights, loss
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):

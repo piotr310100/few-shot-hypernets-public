@@ -329,11 +329,11 @@ class FHyperMAML(MAML):
                     total_loss_flow = loss_flow
                 else:
                     total_loss_flow = total_loss_flow + loss_flow
-
-                self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=None).item())
-                delta_params = delta_params.reshape(delta_params_shape)
-                weights_delta = delta_params[:, :-bias_neurons_num]
-                bias_delta = delta_params[:, -bias_neurons_num:].flatten()
+                    
+                self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=1).mean().item())
+                delta_params = delta_params.reshape(-1, *delta_params_shape)
+                weights_delta = delta_params[:, :, :-bias_neurons_num]
+                bias_delta = delta_params[:, :, -bias_neurons_num:].squeeze()
                 delta_params_list.extend([weights_delta, bias_delta])
 
             total_loss_flow.cuda()
@@ -450,8 +450,8 @@ class FHyperMAML(MAML):
                 yield lst[i:i+2]
 
         for w, b in group_layers(list(self.classifier.parameters())):
-            weights = torch.cat([w.fast, b.fast.reshape(-1, 1)], axis=1)
-            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = None).item())
+            weights = torch.cat([w.fast, b.fast.unsqueeze(-1)], axis=2)
+            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = (1, 2)).mean().item())
 
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels, train_stage):
