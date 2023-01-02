@@ -193,8 +193,8 @@ class CRegression(nn.Module):
             # zaktualizowane parametry TN do liczenia lossu
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
             # tu byly wczesniej sumy
-            delta_log_py = delta_log_py.view(1, num_points, 1).sum(1)
-            log_py = standard_normal_logprob(y2).view(1, -1).sum(1, keepdim=True)
+            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+            log_py = standard_normal_logprob(y2).view(1, -1).mean(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)

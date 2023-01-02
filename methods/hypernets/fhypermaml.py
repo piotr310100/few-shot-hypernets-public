@@ -306,6 +306,7 @@ class FHyperMAML(MAML):
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
+                self._update_hm_maml_warmup_coef()
                 if self.hm_maml_warmup_coef < 1:
                     if self.hm_maml_warmup:
                         if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_norm_warmup_epochs:
@@ -427,7 +428,7 @@ class FHyperMAML(MAML):
                     if self.hm_maml_warmup_coef == 1:
                         # update weights of classifier network by adding gradient
                         for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = (self.train_lr * grad[classifier_offset + k])
+                            update_value = (self.train_lr * grad[classifier_offset + k]).unsqueeze(0)
                             self._update_weight(weight, update_value)
 
                     elif 0.0 < self.hm_maml_warmup_coef < 1.0:
@@ -471,7 +472,6 @@ class FHyperMAML(MAML):
 
             support_embeddings = self.apply_embeddings_strategy(support_embeddings)
             delta_params, flow_loss = self.get_hn_delta_params(support_embeddings, train_stage)
-
             if self.hm_save_delta_params and len(self.delta_list) == 0:
                 self.delta_list = [{'delta_params': delta_params}]
 
