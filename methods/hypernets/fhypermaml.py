@@ -337,7 +337,7 @@ class FHyperMAML(MAML):
                 self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=1).mean().item())
                 delta_params = delta_params.reshape(-1, *delta_params_shape)
                 weights_delta = delta_params[:, :, :-bias_neurons_num]
-                bias_delta = delta_params[:, :, -bias_neurons_num:].squeeze()
+                bias_delta = delta_params[:, :, -bias_neurons_num:].squeeze(-1)
                 delta_params_list.extend([weights_delta, bias_delta])
 
             total_loss_flow.cuda()
@@ -375,6 +375,9 @@ class FHyperMAML(MAML):
                 weight.fast = weight.fast * update_value
 
     def _update_hm_maml_warmup_coef(self):
+        if not self.hm_maml_warmup:
+            self.hm_maml_warmup_coef = 0
+            return
         if self.epoch < self.hm_maml_warmup_epochs:
             self.hm_maml_warmup_coef = 1.0
             return
