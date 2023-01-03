@@ -37,6 +37,9 @@ class FHyperMAML(MAML):
         def clear_field(self,atrib_name):
             self.assert_exist(atrib_name)
             getattr(self,atrib_name).clear()
+        def clear_all_fields(self):
+            for atrib in self.atribs:
+                getattr(self, atrib).clear()
         def get_metrics(self,clean_after:bool=True):
             for atrib in self.atribs:
                 if not getattr(self,atrib):
@@ -56,8 +59,8 @@ class FHyperMAML(MAML):
                     'delta_theta_norm': np.asarray(self.delta_theta_norm).mean()
                     }
             if clean_after:
-                for atrib in self.atribs:
-                    getattr(self,atrib).clear()
+                self.clear_all_fields()
+
             return out
         def append(self, atrib_name, value):
             self.assert_exist(atrib_name)
@@ -447,6 +450,7 @@ class FHyperMAML(MAML):
                 self._update_weight(weight, update_value)
 
         def group_layers(lst):
+            """ generates entries of layers (weights + bias)"""
             for i in range(0, len(lst), 2):
                 yield lst[i:i+2]
 
@@ -584,6 +588,7 @@ class FHyperMAML(MAML):
         return loss, task_accuracy
 
     def train_loop(self, epoch, train_loader, optimizer):  # overwrite parrent function
+        self.manager.clear_all_fields()
         print_freq = 10
         task_count = 0
         # avg_loss = 0
@@ -658,7 +663,7 @@ class FHyperMAML(MAML):
         return metrics
 
     def test_loop(self, test_loader, return_std=False, return_time: bool = False):  # overwrite parrent function
-
+        self.manager.clear_all_fields()
         acc_all = []
         self.delta_list = []
         acc_at = defaultdict(list)
