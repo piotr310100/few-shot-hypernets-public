@@ -130,9 +130,10 @@ class CRegression(nn.Module):
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
         self.const_sample = self.sample_gaussian((self.hn_shape[0] * self.hn_shape[1], 1), None, self.gpu)
-        self.prior_distribution = torch.distributions.MultivariateNormal(
-            torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
-            torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
+        # self.prior_distribution = torch.distributions.MultivariateNormal(
+        #     torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
+        #     torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
+        self.prior_distribution = None
         self.epoch_property = self.EpochManager(args.num_zeros_warmup_epochs)
         self.dim_reducer_hn = torch.nn.Linear(self.hn_shape[0] * self.hn_shape[1], args.zdim)
         self.num_points_train = args.num_points_train
@@ -174,6 +175,7 @@ class CRegression(nn.Module):
     #     return torch.tensor([0])
 
     def forward(self, x: torch.tensor, train_stage, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
+
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
         # 2) wylosuj sample z rozkladu normalnego
@@ -181,8 +183,12 @@ class CRegression(nn.Module):
         y = self.get_sample(num_points)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
-        print(f"epoch_property.temp_w={self.epoch_property.temp_w}")
+        # print(f"epoch_property.temp_w={self.epoch_property.temp_w}")
         delta_target_networks_weights = self.epoch_property.temp_w * self.point_cnf(y, z, reverse=True).view(*y.size())
+
+        self.prior_distribution = torch.distributions.MultivariateNormal(
+            self.epoch_property.temp_w * self.point_cnf(torch.zeros(1,1,self.hn_shape[0] * self.hn_shape[1]).cuda(), z, reverse=True).detach().reshape(-1),
+            self.epoch_property.temp_w * torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
         # ------- LOSS ----------
         if norm_warmup:
             delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
@@ -195,7 +201,7 @@ class CRegression(nn.Module):
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
             # tu byly wczesniej sumy
             delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
-            log_py = standard_normal_logprob(y2).view(1, -1).mean(1, keepdim=True)
+            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)
@@ -233,24 +239,24 @@ class CRegression(nn.Module):
         x = self.point_cnf(y, w, reverse=True).view(*y.size())
         return y, x
 
-    def get_logprob(self, x, y_in):
-        batch_size = x.size(0)
-        w = self.flownet(x)
-
-        # Loss
-        y, delta_log_py = self.point_cnf(y_in, w, torch.zeros(batch_size, y_in.size(1), 1).to(y_in))
-        if self.logprob_type == "Laplace":
-            log_py = standard_laplace_logprob(y)
-        if self.logprob_type == "Normal":
-            log_py = standard_normal_logprob(y)
-
-        batch_log_py = log_py.sum(dim=2)
-        batch_log_px = batch_log_py - delta_log_py.sum(dim=2)
-        log_py = log_py.view(batch_size, -1).sum(1, keepdim=True)
-        delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
-        log_px = log_py - delta_log_py
-
-        return log_py, log_px, (batch_log_py, batch_log_px)
+    # def get_logprob(self, x, y_in):
+    #     batch_size = x.size(0)
+    #     w = self.flownet(x)
+    #
+    #     # Loss
+    #     y, delta_log_py = self.point_cnf(y_in, w, torch.zeros(batch_size, y_in.size(1), 1).to(y_in))
+    #     if self.logprob_type == "Laplace":
+    #         log_py = standard_laplace_logprob(y)
+    #     if self.logprob_type == "Normal":
+    #         log_py = standard_normal_logprob(y)
+    #
+    #     batch_log_py = log_py.sum(dim=2)
+    #     batch_log_px = batch_log_py - delta_log_py.sum(dim=2)
+    #     log_py = log_py.view(batch_size, -1).sum(1, keepdim=True)
+    #     delta_log_py = delta_log_py.view(batch_size, y.size(1), 1).sum(1)
+    #     log_px = log_py - delta_log_py
+    #
+    #     return log_py, log_px, (batch_log_py, batch_log_px)
 
 
 class FlowNetS(nn.Module):

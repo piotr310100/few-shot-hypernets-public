@@ -443,7 +443,7 @@ class FHyperMAML(MAML):
                             self._update_weight(weight, update_value)
 
                     elif 0.0 < self.hm_maml_warmup_coef < 1.0:
-                        print(f"hm_maml_warmup_coef={self.hm_maml_warmup_coef}")
+                        # print(f"hm_maml_warmup_coef={self.hm_maml_warmup_coef}")
                         # update weights of classifier network by adding gradient and output of hypernetwork
                         for k, weight in enumerate(self.classifier.parameters()):
                             update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
