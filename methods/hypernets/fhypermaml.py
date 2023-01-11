@@ -378,16 +378,17 @@ class FHyperMAML(MAML):
     def _update_hm_maml_warmup_coef(self):
         if not self.hm_maml_warmup:
             self.hm_maml_warmup_coef = 0
+            self.flow.epoch_property.temp_w = 1
             return
+
         if self.epoch < self.hm_maml_warmup_epochs:
             self.hm_maml_warmup_coef = 1.0
-            return
         elif self.hm_maml_warmup_epochs <= self.epoch < self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs:
+
             self.hm_maml_warmup_coef = (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (
                     self.hm_maml_warmup_switch_epochs + 1)
-            return
-        self.hm_maml_warmup_coef = 0
-
+        else:
+            self.hm_maml_warmup_coef = 0
         # hm_maml_warmup_coef ~ flow_temperature
         self.flow.epoch_property.temp_w = 1 - self.hm_maml_warmup_coef
 
