@@ -124,9 +124,10 @@ class FHyperMAML(MAML):
 
         self.flow_num_norm_warmup_epochs = params.flow_num_norm_warmup_epochs
         self.flow_num_zeros_warmup_epochs = params.flow_zero_warmup_epochs
-        self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
-        self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
-        self.flow_temp_strategy = params.flow_temp_strategy
+        # self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
+        # self.flow_num_dkl_warmup_epochs = int(params.flow_temp_warmup_epochs * params.warmup_coef)
+        self.flow_num_dkl_warmup_epochs = params.flow_dkl_warmup_epochs
+        # self.flow_temp_strategy = params.flow_temp_strategy
         self.flow_dkl_strategy = params.flow_dkl_strategy
         self.num_points_train = params.num_points_train
         self.num_points_test = params.num_points_test
@@ -187,29 +188,29 @@ class FHyperMAML(MAML):
                     self.flow_dkl_step = 1.0 / self.flow_num_dkl_warmup_epochs
                 self.flow_dkl_scale = self.flow_dkl_scale + self.flow_dkl_step
 
-    def _sample_temp_step(self):
-        if self.flow_temp_strategy == "Exp":
-            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
-                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
-                if self.flow_step is None:
-                    self.flow.epoch_property.temp_w = 1
-                    self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val,
-                                              1 / self.flow_num_temperature_warmup_epochs)
-                self.flow_scale = self.flow_scale * self.flow_step
-        elif self.flow_temp_strategy == "Linear":
-            if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
-                    >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
-                if self.flow_step is None:
-                    self.flow.epoch_property.temp_w = 0
-                    self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
-                self.flow_scale = self.flow_scale + self.flow_step
+    # def _sample_temp_step(self):
+    #     if self.flow_temp_strategy == "Exp":
+    #         if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
+    #                 >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+    #             if self.flow_step is None:
+    #                 self.flow.epoch_property.temp_w = 1
+    #                 self.flow_step = np.power(1 / self.flow_scale * self.flow_stop_val,
+    #                                           1 / self.flow_num_temperature_warmup_epochs)
+    #             self.flow_scale = self.flow_scale * self.flow_step
+    #     elif self.flow_temp_strategy == "Linear":
+    #         if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs > self.flow.epoch_property.curr_epoch \
+    #                 >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
+    #             if self.flow_step is None:
+    #                 self.flow.epoch_property.temp_w = 0
+    #                 self.flow_step = 1.0 / self.flow_num_temperature_warmup_epochs
+    #             self.flow_scale = self.flow_scale + self.flow_step
 
     def _update_flow(self):
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.temp_w > self.flow_stop_val:  # any numeric errors
-            self.flow.epoch_property.temp_w = 1
-        else:
-            self.flow.epoch_property.temp_w = self.flow_scale
+        # if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+        #         or self.flow.epoch_property.temp_w > self.flow_stop_val:  # any numeric errors
+        #     self.flow.epoch_property.temp_w = 1
+        # else:
+        #     self.flow.epoch_property.temp_w = self.flow_scale
         if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
                 or self.flow.epoch_property.dkl_w > self.flow_stop_val:  # any numeric errors
             self.flow.epoch_property.dkl_w = 1
@@ -386,6 +387,9 @@ class FHyperMAML(MAML):
                     self.hm_maml_warmup_switch_epochs + 1)
             return
         self.hm_maml_warmup_coef = 0
+
+        # hm_maml_warmup_coef ~ flow_temperature
+        self.flow.epoch_property.temp_w = 1 - self.hm_maml_warmup_coef
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
@@ -634,7 +638,7 @@ class FHyperMAML(MAML):
                                                                              len(train_loader),
                                                                              torch.stack(self.manager.loss).sum(0).item() / float(i + 1)))
         if self.hm_maml_warmup_coef < 1:
-            self._sample_temp_step()
+            # self._sample_temp_step()
             self._sample_dkl_step()
             self._update_flow()
             print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
