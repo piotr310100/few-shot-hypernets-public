@@ -181,6 +181,7 @@ class CRegression(nn.Module):
         y = self.get_sample(num_points)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
+        print(f"epoch_property.temp_w={self.epoch_property.temp_w}")
         delta_target_networks_weights = self.epoch_property.temp_w * self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
         if norm_warmup:

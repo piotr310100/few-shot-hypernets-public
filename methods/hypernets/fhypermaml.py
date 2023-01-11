@@ -395,7 +395,7 @@ class FHyperMAML(MAML):
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
         if self.hm_maml_warmup and not self.single_test:
-            self._update_hm_maml_warmup_coef()
+            # self._update_hm_maml_warmup_coef()
             if self.hm_maml_warmup_coef > 0.0:
                 fast_parameters = []
                 if self.hm_maml_update_feature_net:
@@ -443,6 +443,7 @@ class FHyperMAML(MAML):
                             self._update_weight(weight, update_value)
 
                     elif 0.0 < self.hm_maml_warmup_coef < 1.0:
+                        print(f"hm_maml_warmup_coef={self.hm_maml_warmup_coef}")
                         # update weights of classifier network by adding gradient and output of hypernetwork
                         for k, weight in enumerate(self.classifier.parameters()):
                             update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
@@ -524,10 +525,12 @@ class FHyperMAML(MAML):
         maml_warmup_used = (
                 (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
 
+        if self.hm_maml_warmup and not self.single_test:
+            self._update_hm_maml_warmup_coef()
+
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels, train_stage)
-        # if not flow_loss.dim() == 0:
-        #     flow_loss = torch.sum(flow_loss)
+
 
         self._update_network_weights(delta_params_list, flow_loss, support_embeddings, support_data_labels, train_stage)
 
