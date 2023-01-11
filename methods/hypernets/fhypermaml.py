@@ -150,11 +150,11 @@ class FHyperMAML(MAML):
                 self.flow_scale = self.flow_scale + self.flow_step
 
     def _update_flow(self):
-        # if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-        #         or self.flow.epoch_property.temp_w > self.flow_stop_val:  # any numeric errors
-        #     self.flow.epoch_property.temp_w = 1
-        # else:
-        #     self.flow.epoch_property.temp_w = self.flow_scale
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+                or self.flow.epoch_property.temp_w > self.flow_stop_val:  # any numeric errors
+            self.flow.epoch_property.temp_w = 1
+        else:
+            self.flow.epoch_property.temp_w = self.flow_scale
         if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
                 or self.flow.epoch_property.dkl_w > self.flow_stop_val:  # any numeric errors
             self.flow.epoch_property.dkl_w = 1
@@ -313,9 +313,6 @@ class FHyperMAML(MAML):
                     self.hm_maml_warmup_switch_epochs + 1)
             return
         self.hm_maml_warmup_coef = 0
-
-        # hm_maml_warmup_coef == flow_temperature
-        self.flow.epoch_property.temp_w = 1 - self.hm_maml_warmup_coef
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):

@@ -152,7 +152,7 @@ class CRegression(nn.Module):
 
     def get_sample(self):
         if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.sample_gaussian((1, 1, self.hn_shape[0] * self.hn_shape[1]), None,
+            y = self.epoch_property.temp_w * self.sample_gaussian((1, 1, self.hn_shape[0] * self.hn_shape[1]), None,
                                                                   self.gpu)
         else:
             y = torch.zeros(1, 1, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
@@ -178,7 +178,7 @@ class CRegression(nn.Module):
         y = self.get_sample()
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1, 1)
-        delta_target_networks_weights = self.epoch_property.temp_w * self.point_cnf(y, z, reverse=True).view(*y.size())
+        delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
         if norm_warmup:
             loss = torch.norm(delta_target_networks_weights)
