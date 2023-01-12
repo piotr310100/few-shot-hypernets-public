@@ -310,7 +310,7 @@ class FHyperMAML(MAML):
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
-                self._update_hm_maml_warmup_coef()
+                # self._update_hm_maml_warmup_coef()
                 if self.hm_maml_warmup_coef < 1:
                     if self.hm_maml_warmup:
                         if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_norm_warmup_epochs:
@@ -482,6 +482,8 @@ class FHyperMAML(MAML):
             for weight in self.parameters():
                 weight.fast = None
             self.zero_grad()
+            if self.hm_maml_warmup and not self.single_test:
+                self._update_hm_maml_warmup_coef()
 
             support_embeddings = self.apply_embeddings_strategy(support_embeddings)
             delta_params, flow_loss = self.get_hn_delta_params(support_embeddings, train_stage)
@@ -525,8 +527,6 @@ class FHyperMAML(MAML):
         maml_warmup_used = (
                 (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
 
-        if self.hm_maml_warmup and not self.single_test:
-            self._update_hm_maml_warmup_coef()
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels, train_stage)
