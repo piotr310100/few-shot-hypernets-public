@@ -154,7 +154,7 @@ class CRegression(nn.Module):
 
     def get_sample(self, num_points):
         if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
+            y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
                                                                   self.gpu)
         else:
             y = torch.zeros(1, num_points, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
@@ -181,8 +181,8 @@ class CRegression(nn.Module):
         y = self.get_sample(num_points)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
-        print(f"epoch_property.temp_w={self.epoch_property.temp_w}")
-        delta_target_networks_weights = self.epoch_property.temp_w * self.point_cnf(y, z, reverse=True).view(*y.size())
+        # print(f"epoch_property.temp_w={self.epoch_property.temp_w}")
+        delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
         if norm_warmup:
             delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
@@ -195,7 +195,7 @@ class CRegression(nn.Module):
             y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
             # tu byly wczesniej sumy
             delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
-            log_py = standard_normal_logprob(y2).view(1, -1).mean(1, keepdim=True)
+            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
             log_px = log_py - delta_log_py
             # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
             loss = log_px.reshape(1)
@@ -242,7 +242,7 @@ class CRegression(nn.Module):
         if self.logprob_type == "Laplace":
             log_py = standard_laplace_logprob(y)
         if self.logprob_type == "Normal":
-            log_py = standard_normal_logprob(y)
+            log_py = standard_normal_logprob(y,self.epoch_property.temp_w)
 
         batch_log_py = log_py.sum(dim=2)
         batch_log_px = batch_log_py - delta_log_py.sum(dim=2)
