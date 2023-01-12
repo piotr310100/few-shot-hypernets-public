@@ -470,6 +470,9 @@ class FHyperMAML(MAML):
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels, train_stage):
         flow_loss = torch.tensor([0]).cuda()
+        if self.hm_maml_warmup and not self.single_test:
+            self._update_hm_maml_warmup_coef()
+            
         if not maml_warmup_used:
             if self.enhance_embeddings:
                 with torch.no_grad():
