@@ -185,7 +185,7 @@ class FHyperMAML(MAML):
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_dkl_warmup_epochs > 0:
                 if self.flow_dkl_step is None:
                     self.flow.dkl_w = 0
-                    self.flow_dkl_step = 1.0 / self.flow_num_dkl_warmup_epochs
+                    self.flow_dkl_step = self.flow_dkl_stop_val / self.flow_num_dkl_warmup_epochs
                 self.flow_dkl_scale = self.flow_dkl_scale + self.flow_dkl_step
 
     def _sample_temp_step(self):
@@ -202,19 +202,19 @@ class FHyperMAML(MAML):
                     >= self.flow_num_zeros_warmup_epochs and self.flow_num_temperature_warmup_epochs > 0:
                 if self.flow_temp_step is None:
                     self.flow.epoch_property.temp_w = 0
-                    self.flow_temp_step = 1.0 / self.flow_num_temperature_warmup_epochs
+                    self.flow_temp_step = self.flow_temp_stop_val / self.flow_num_temperature_warmup_epochs
                 self.flow_temp_scale = self.flow_temp_scale + self.flow_temp_step
 
     def _update_flow(self):
         assert self.flow_dkl_scale > 0 and self.flow_temp_scale > 0
         if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
                 or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
-            self.flow.epoch_property.temp_w = 1
+            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
         else:
             self.flow.epoch_property.temp_w = self.flow_temp_scale
         if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
                 or self.flow.epoch_property.dkl_w > self.flow_dkl_stop_val:  # any numeric errors
-            self.flow.epoch_property.dkl_w = 1
+            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
         else:
             self.flow.epoch_property.dkl_w = self.flow_dkl_scale
 
