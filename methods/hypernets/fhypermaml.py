@@ -207,6 +207,12 @@ class FHyperMAML(MAML):
 
     def _update_flow(self):
         assert self.flow_dkl_scale > 0 and self.flow_temp_scale > 0
+        
+        if self.single_test:
+            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
+            return
+        
         if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
                 or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
             self.flow.epoch_property.temp_w = self.flow_temp_stop_val
@@ -317,18 +323,22 @@ class FHyperMAML(MAML):
                 if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
                     delta_params = delta_params * self.alpha
                 delta_params_shape = delta_params.shape
-                self._update_hm_maml_warmup_coef()
-                if self.hm_maml_warmup_coef < 1:
-                    if self.hm_maml_warmup:
-                        if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_norm_warmup_epochs:
-                            norm_warmup = True
-                        else:
-                            norm_warmup = False
+                if self.hm_maml_warmup:
+                    self._update_hm_maml_warmup_coef()
+                    if self.epoch - self.hm_maml_warmup_epochs < self.flow_num_norm_warmup_epochs:
+                        norm_warmup = True
                     else:
-                        if self.epoch < self.flow_num_norm_warmup_epochs:
-                            norm_warmup = True
-                        else:
-                            norm_warmup = False
+                        norm_warmup = False
+                else:
+                    if self.epoch < self.flow_num_norm_warmup_epochs:
+                        norm_warmup = True
+                    else:
+                        norm_warmup = False
+                if self.single_test:
+                    norm_warmup = False
+
+                flow_pass = self.hm_maml_warmup_coef < 1 or self.single_test
+                if flow_pass:
                     self._update_flow()
                     delta_params, loss_flow = self.flow(delta_params, train_stage, norm_warmup)
                     density_loss = self.flow.get_density_loss(delta_params)
