@@ -340,7 +340,11 @@ class FHyperMAML(MAML):
                 flow_pass = self.hm_maml_warmup_coef < 1 or self.single_test
                 if flow_pass:
                     self._update_flow()
-                    delta_params, loss_flow = self.flow(delta_params, train_stage, norm_warmup)
+                    if self.single_test:
+                        cond = False
+                    else:
+                        cond = train_stage
+                    delta_params, loss_flow = self.flow(delta_params, cond, norm_warmup)
                     density_loss = self.flow.get_density_loss(delta_params)
                     raw_loss_flow_list.append(loss_flow)
                     density_loss_list.append(density_loss)  # before scaling

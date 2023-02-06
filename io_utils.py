@@ -79,6 +79,7 @@ def parse_args(script):
     parser.add_argument("--lr_scheduler", type=str, help="LR scheduler", default="none", choices=[
         "multisteplr", "none", "cosine", "reducelronplateau"
     ])
+    parser.add_argument("--gamma", type=float, default=0.3, help="Gamma value for multistepLR")  
     parser.add_argument("--milestones", nargs='+', type=int, default=None, help="Milestones for multisteplr")
     parser.add_argument("--maml_save_feature_network", action="store_true", help="if to save feature net used in MAML")
     parser.add_argument("--maml_adapt_classifier", action="store_true",
@@ -101,7 +102,7 @@ def parse_args(script):
                             help="Check if val accuracy threshold achieved at this epoch, stop if not.")
         parser.add_argument("--es_threshold", type=float, default=70.0,
                             help="Val accuracy threshold for early stopping")
-        parser.add_argument("--eval_freq", type=int, default=1, help="Evaluation frequency")
+        parser.add_argument("--eval_freq", type=int, default=1, help="Evaluation frequency")      
 
     elif script == 'save_features':
         parser.add_argument('--split', default='novel',

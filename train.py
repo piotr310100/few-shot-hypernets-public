@@ -255,7 +255,7 @@ def get_scheduler(params, optimizer, stop_epoch=None) -> lr_scheduler._LRSchedul
             milestones = list(range(0, params.stop_epoch, params.stop_epoch // 4))[1:]
 
         return lr_scheduler.MultiStepLR(optimizer, milestones=milestones,
-                                        gamma=0.3)
+                                        gamma=params.gamma)
     elif params.lr_scheduler == "none":
         return lr_scheduler.MultiStepLR(optimizer,
                                         milestones=list(range(0, params.stop_epoch, params.stop_epoch // 4))[1:],
