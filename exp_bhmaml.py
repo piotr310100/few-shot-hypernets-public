@@ -217,10 +217,10 @@ if __name__ == '__main__':
             delta_params_list.append([weights_delta_mean, weights_logvar])
             delta_params_list.append([bias_delta_mean, bias_logvar])
 
-            weights_delta_mean_all.append(weights_delta_mean)
-            bias_delta_mean_all.append(bias_delta_mean)
-            weights_logvar_all.append(weights_logvar)
-            bias_logvar_all.append(bias_logvar)
+            weights_delta_mean_all.append(weights_delta_mean.detach().cpu())
+            bias_delta_mean_all.append(bias_delta_mean.detach().cpu())
+            weights_logvar_all.append(weights_logvar.detach().cpu())
+            bias_logvar_all.append(bias_logvar.detach().cpu())
 
     torch.save(weights_delta_mean_all, 'exp_bhmaml_evaluation/weights_delta_mean_all.pt')
     torch.save(bias_delta_mean_all, 'exp_bhmaml_evaluation/bias_delta_mean_all.pt')
