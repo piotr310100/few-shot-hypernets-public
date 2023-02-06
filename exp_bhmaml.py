@@ -1,31 +1,19 @@
-from typing import Type, List, Union, Dict, Optional
-
 import torch.optim
 import torch.utils.data.sampler
 from torch.autograd import Variable
 import numpy as np
 import torch
 import random
-from neptune.new import Run
 import torch.optim
-import torch.optim.lr_scheduler as lr_scheduler
 import os
 from torch.nn import functional as F
 import configs
 import backbone
 from data.datamgr import SimpleDataManager, SetDataManager
 from methods.baselinetrain import BaselineTrain
-from methods.DKT import DKT
-from methods.hypernets.hypernet_poc import HyperNetPOC
 from methods.hypernets import hypernet_types
-from methods.protonet import ProtoNet
-from methods.matchingnet import MatchingNet
-from methods.relationnet import RelationNet
-from methods.maml import MAML
 from methods.hypernets.bayeshmaml import BayesHMAML
-from methods.hypernets.hypermaml import HyperMAML
-from methods.hypernets.fhypermaml import FHyperMAML
-from io_utils import model_dict, parse_args, get_resume_file, setup_neptune
+from io_utils import model_dict, parse_args, get_resume_file
 
 
 def _set_seed(seed, verbose=True):
@@ -113,59 +101,16 @@ if __name__ == '__main__':
         val_loader = val_datamgr.get_data_loader(val_file, aug=False)
         # a batch for SetDataManager: a [n_way, n_support + n_query, dim, w, h] tensor
 
-        if (params.method == 'DKT'):
-            dkt_train_few_shot_params = dict(n_way=params.train_n_way, n_support=params.n_shot)
-            model = DKT(model_dict[params.model], **dkt_train_few_shot_params)
-            model.init_summary()
-        elif params.method == 'protonet':
-            model = ProtoNet(model_dict[params.model], **train_few_shot_params)
-        elif params.method == 'matchingnet':
-            model = MatchingNet(model_dict[params.model], **train_few_shot_params)
-        elif params.method in ['relationnet', 'relationnet_softmax']:
-            if params.model == 'Conv4':
-                feature_model = backbone.Conv4NP
-            elif params.model == 'Conv6':
-                feature_model = backbone.Conv6NP
-            elif params.model == 'Conv4S':
-                feature_model = backbone.Conv4SNP
-            else:
-                feature_model = lambda: model_dict[params.model](flatten=False)
-            loss_type = 'mse' if params.method == 'relationnet' else 'softmax'
-
-            model = RelationNet(feature_model, loss_type=loss_type, **train_few_shot_params)
-        elif params.method in ['maml', 'maml_approx']:
-            backbone.ConvBlock.maml = True
-            backbone.SimpleBlock.maml = True
-            backbone.BottleneckBlock.maml = True
-            backbone.ResNet.maml = True
-            model = MAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
-                         **train_few_shot_params)
-            if params.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
-                model.n_task = 32
-                model.task_update_num = 1
-                model.train_lr = 0.1
-
-        elif params.method in hypernet_types.keys():
-            hn_type: Type[HyperNetPOC] = hypernet_types[params.method]
-            model = hn_type(model_dict[params.model], params=params, **train_few_shot_params)
-        elif params.method in ['fhyper_maml', 'hyper_maml', 'bayes_hmaml']:
-            backbone.ConvBlock.maml = True
-            backbone.SimpleBlock.maml = True
-            backbone.BottleneckBlock.maml = True
-            backbone.ResNet.maml = True
-            if params.method == 'bayes_hmaml':
-                model = BayesHMAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
-                                   **train_few_shot_params)
-            elif params.method == 'hyper_maml':
-                model = HyperMAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
-                                  **train_few_shot_params)
-            else:
-                model = FHyperMAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
-                                   **train_few_shot_params)
-            if params.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
-                model.n_task = 32
-                model.task_update_num = 1
-                model.train_lr = 0.1
+        backbone.ConvBlock.maml = True
+        backbone.SimpleBlock.maml = True
+        backbone.BottleneckBlock.maml = True
+        backbone.ResNet.maml = True
+        model = BayesHMAML(model_dict[params.model], params=params, approx=(params.method == 'maml_approx'),
+                               **train_few_shot_params)
+        if params.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+            model.n_task = 32
+            model.task_update_num = 1
+            model.train_lr = 0.1
     else:
         raise ValueError('Unknown method')
 
@@ -239,52 +184,45 @@ if __name__ == '__main__':
     delta_params_list = []
     total_loss_flow = None
 
-    model.num_points_train = params.num_points_train
-    model.flow.epoch_property.temp_w = 1
-    model.flow.epoch_property.dkl_w = 1
-    weights_delta_all = []
-    bias_delta_all = []
-    delta_params_all = []
-    train_stage = True
-    norm_warmup = False
-    weights_delta = None
-    bias_delta = None
+    weights_delta_mean_all = []
+    bias_delta_mean_all = []
+    weights_logvar_all = []
+    bias_logvar_all = []
     num_samples = 1000
+    # model.weight_set_num_train = model.hm_weight_set_num_test = 1
 
-    model.flow.num_points_train = model.flow.num_points_test = 1
     for num_sample in range(num_samples):
         print(num_sample)
         for name, param_net in model.hypernet_heads.items():
+
             support_embeddings_resh = support_embeddings.reshape(
                 model.n_way, -1
             )
-            delta_params = param_net(support_embeddings_resh)
+
+            delta_params_mean, params_logvar = param_net(support_embeddings_resh)
             bias_neurons_num = model.target_net_param_shapes[name][0] // model.n_way
+
             if model.hn_adaptation_strategy == 'increasing_alpha' and model.alpha < 1:
-                delta_params = delta_params * model.alpha
-            delta_params_shape = delta_params.shape
+                delta_params_mean = delta_params_mean * model.alpha
+                params_logvar = params_logvar * model.alpha
 
-            delta_params, loss_flow = model.flow(delta_params, train_stage, norm_warmup)
-            density_loss = model.flow.get_density_loss(delta_params)
-            loss_flow = model.flow.epoch_property.dkl_w * (loss_flow - density_loss)
+            weights_delta_mean = delta_params_mean[:, :-bias_neurons_num].contiguous().view(
+                *model.target_net_param_shapes[name])
+            bias_delta_mean = delta_params_mean[:, -bias_neurons_num:].flatten()
 
-            if total_loss_flow is None:
-                total_loss_flow = loss_flow
-            else:
-                total_loss_flow = total_loss_flow + loss_flow
-            delta_params = delta_params.reshape(-1, *delta_params_shape)
-            weights_delta = delta_params[:, :, :-bias_neurons_num].detach().cpu()
-            bias_delta = delta_params[:, :, -bias_neurons_num:].squeeze().detach().cpu()
-            delta_params_list.extend([weights_delta, bias_delta])
-            #print(delta_params_list)
+            weights_logvar = params_logvar[:, :-bias_neurons_num].contiguous().view(
+                *model.target_net_param_shapes[name])
+            bias_logvar = params_logvar[:, -bias_neurons_num:].flatten()
 
-            delta_params_all.append(delta_params.flatten().detach().cpu())
-            bias_delta_all.append(bias_delta.flatten())
-            weights_delta_all.append(weights_delta.flatten())
+            delta_params_list.append([weights_delta_mean, weights_logvar])
+            delta_params_list.append([bias_delta_mean, bias_logvar])
 
-    torch.save(weights_delta_all, 'weights_delta_all.pt')
-    torch.save(bias_delta_all, 'bias_delta_all.pt')
-    torch.save(delta_params_all, 'delta_params_all.pt')
+            weights_delta_mean_all.append(weights_delta_mean)
+            bias_delta_mean_all.append(bias_delta_mean)
+            weights_logvar_all.append(weights_logvar)
+            bias_logvar_all.append(bias_logvar)
 
-
-
+    torch.save(weights_delta_mean_all, 'exp_bhmaml_evaluation/weights_delta_mean_all.pt')
+    torch.save(bias_delta_mean_all, 'exp_bhmaml_evaluation/bias_delta_mean_all.pt')
+    torch.save(weights_logvar_all, 'exp_bhmaml_evaluation/weights_logvar_all.pt')
+    torch.save(bias_logvar_all, 'exp_bhmaml_evaluation/bias_logvar_all.pt')
