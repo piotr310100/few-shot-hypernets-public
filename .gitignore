@@ -17,6 +17,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+torchdiffeq
 .Python
 build/
 develop-eggs/
