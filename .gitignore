@@ -4,6 +4,9 @@ regressionFlow/checkpoints
 # filelists
 filelists
 !filelists/*/*.[sh|py]
+# experiment
+exp_1_data
+
 
 # filelist configs
 .configs.py
