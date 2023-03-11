@@ -235,7 +235,7 @@ def experiment(params_experiment):
         print("[WARNING] Cannot find 'best_file.tar' in: " + str(params_experiment.checkpoint_dir))
 
     neptune_run = setup_neptune(params_experiment)
-
+    #neptune_run = None
     # primary batches for adaptation
     features = []
     labels = []
@@ -298,9 +298,11 @@ def experiment(params_experiment):
     q2 = {}
     # model.weight_set_num_train = 1
     # model.weight_set_num_test = 1
-
     for num in range(num_samples):
-        delta_params_list = [parameters_generated_from_support[0][num], parameters_generated_from_support[1][num]]   # todo dopasowac wymiary tak zeby nie wykorzystywac votingu w backbonie
+        delta_params_list = [parameters_generated_from_support[0][num], parameters_generated_from_support[1][num]]
+
+        for k,weight in enumerate(model.classifier.parameters()):
+            weight.fast=None
 
         for k, weight in enumerate(model.classifier.parameters()):
             update_value = delta_params_list[k]
