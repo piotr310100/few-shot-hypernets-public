@@ -721,7 +721,7 @@ class FHyperMAML(MAML):
                 self.n_query = x.size(1) - self.n_support
                 assert self.n_way == x.size(0), f"MAML do not support way change, {self.n_way=}, {x.size(0)=}"
                 s = time()
-                correct_this, count_this = self.correct(x)
+                correct_this, count_this, loss_ce_test = self.correct(x)
                 t = time()
                 acc_all.append(correct_this / count_this * 100)
                 eval_time += (t - s)
@@ -730,6 +730,8 @@ class FHyperMAML(MAML):
             k: np.mean(v) if len(v) > 0 else 0
             for (k, v) in acc_at.items()
         }
+        if not self.hm_set_forward_with_adaptation:
+            metrics["ce_loss_test"] = loss_ce_test.item()
 
         num_tasks = len(acc_all)
         acc_all = np.asarray(acc_all)
@@ -796,7 +798,10 @@ class FHyperMAML(MAML):
         scores, *_ = self.set_forward(x)
         y_query = np.repeat(range(self.n_way), self.n_query)
 
+        with torch.no_grad():
+            loss_ce = self.loss_fn(scores, torch.from_numpy(y_query).cuda())
+
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy()
         top1_correct = np.sum(topk_ind[:, 0] == y_query)
-        return float(top1_correct), len(y_query)
+        return float(top1_correct), len(y_query), loss_ce
