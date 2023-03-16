@@ -151,11 +151,7 @@ class CRegression(nn.Module):
         return opt
 
     def get_sample(self, num_points):
-        if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
-                                                                  self.gpu)
-        else:
-            y = torch.zeros(1, num_points, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
+        y = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
         return y
 
     # def get_fast_weights(self, global_weight, delta_weight):
