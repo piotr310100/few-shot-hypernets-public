@@ -315,6 +315,13 @@ def experiment(params_experiment):
             if i not in q1:
                 q1[i] = []
             q1[i].append(F.softmax(model(query_data1), dim=1)[0].clone().data.cpu().numpy())
+        query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
+        topk_scores, topk_labels = model(query_data1).data.topk(1, 1, True, True)
+        topk_ind = topk_labels.cpu().numpy().flatten()
+        y_labels = query_data_labels.cpu().numpy()
+        top1_correct = np.sum(topk_ind == y_labels)
+        task_accuracy = (top1_correct / len(query_data_labels)) * 100
+        print(task_accuracy)
         for i, support_data2 in enumerate(support_datas2):
             if i not in s2:
                 s2[i] = []
@@ -323,6 +330,14 @@ def experiment(params_experiment):
             if i not in q2:
                 q2[i] = []
             q2[i].append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
+        query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
+        topk_scores, topk_labels = model(query_data2).data.topk(1, 1, True, True)
+        topk_ind = topk_labels.cpu().numpy().flatten()
+        y_labels = query_data_labels.cpu().numpy()
+        top1_correct = np.sum(topk_ind == y_labels)
+        task_accuracy = (top1_correct / len(query_data_labels)) * 100
+        print(task_accuracy)
+        exit()
 
     plot_histograms(neptune_run, s1, s2, q1, q2)
 

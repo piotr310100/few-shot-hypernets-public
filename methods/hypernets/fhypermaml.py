@@ -221,23 +221,8 @@ class FHyperMAML(MAML):
                 self.flow_temp_scale = self.flow_temp_scale + self.flow_temp_step
 
     def _update_flow(self):
-        assert self.flow_dkl_scale > 0 and self.flow_temp_scale > 0
-
-        if self.single_test:
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
-            return
-
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-        else:
-            self.flow.epoch_property.temp_w = self.flow_temp_scale
-        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.dkl_w > self.flow_dkl_stop_val:  # any numeric errors
-            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
-        else:
-            self.flow.epoch_property.dkl_w = self.flow_dkl_scale
+        self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+        self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -322,6 +307,7 @@ class FHyperMAML(MAML):
     def set_forward_experiment(self, x, num_points):
         """Return delta params (adaptation) generated from support set of x.
             Don't adapt anything, just return weights"""
+        self._update_flow()
         self.flow.num_points = num_points
         x = x.cuda()
         x_var = Variable(x)

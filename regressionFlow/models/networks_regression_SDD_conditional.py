@@ -151,7 +151,7 @@ class CRegression(nn.Module):
         return opt
 
     def get_sample(self, num_points):
-        y = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
+        y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
         return y
 
     # def get_fast_weights(self, global_weight, delta_weight):
