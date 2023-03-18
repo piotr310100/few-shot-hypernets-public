@@ -314,7 +314,8 @@ def experiment(params_experiment):
             if i not in q1:
                 q1[i] = []
             q1[i].append(F.softmax(model(query_data1), dim=1)[0].clone().data.cpu().numpy())
-        if num == 0:
+        if num % 25 == 0:
+            print(f'Accuracy on query at: {num}/{num_samples}')
             query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
             topk_scores, topk_labels = model(query_data1).data.topk(1, 1, True, True)
             topk_ind = topk_labels.cpu().numpy().flatten()
@@ -330,7 +331,7 @@ def experiment(params_experiment):
             if i not in q2:
                 q2[i] = []
             q2[i].append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
-        if num == 0:
+        if num % 25 == 0:
             query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
             topk_scores, topk_labels = model(query_data2).data.topk(1, 1, True, True)
             topk_ind = topk_labels.cpu().numpy().flatten()

@@ -171,7 +171,7 @@ class CRegression(nn.Module):
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
         # 2) wylosuj sample z rozkladu normalnego
-        num_points = 20
+        num_points = 1
         y = self.get_sample(num_points)
         # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
