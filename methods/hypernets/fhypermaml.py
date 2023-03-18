@@ -15,16 +15,13 @@ from methods.maml import MAML
 from regressionFlow.models.networks_regression_SDD_conditional import CRegression
 from methods.hypernets.hypermaml import HyperNet
 
-
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
     class _MetricsManager:
         """manager for metrics to report as output to stdout/ neptune.ai for the train phase"""
-
         def assert_exist(self, atrib_name):
             assert atrib_name in self.atribs, "invalid atrib name"
-
-        def __init__(self, flow_w: float):
+        def __init__(self,flow_w:float):
             self.acc = []
             self.loss = []
             self.loss_ce = []
@@ -36,46 +33,38 @@ class FHyperMAML(MAML):
             self.delta_theta_norm = []
             self.delta_theta_std = []
             self.flow_w = flow_w
-            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss', 'flow_loss_scaled', 'flow_density_loss',
-                           'flow_loss_raw',
-                           'theta_norm', 'delta_theta_norm', 'delta_theta_std']
+            self.atribs = ['acc', 'loss', 'loss_ce', 'flow_loss','flow_loss_scaled', 'flow_density_loss','flow_loss_raw',
+                           'theta_norm', 'delta_theta_norm','delta_theta_std']
 
-        def clear_field(self, atrib_name):
+        def clear_field(self,atrib_name):
             self.assert_exist(atrib_name)
-            getattr(self, atrib_name).clear()
-
+            getattr(self,atrib_name).clear()
         def clear_all_fields(self):
             for atrib in self.atribs:
                 getattr(self, atrib).clear()
-
-        def get_metrics(self, clean_after: bool = True):
+        def get_metrics(self,clean_after:bool=True):
             for atrib in self.atribs:
-                if not getattr(self, atrib):
+                if not getattr(self,atrib):
                     if atrib == 'loss':
                         self.append(atrib, torch.tensor([0]).cuda())
                     else:
                         self.append(atrib, 0)
-            # print(self.flow_loss)
+            #print(self.flow_loss)
             out = {'accuracy/train': np.asarray(self.acc).mean(),
-                   'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),
-                   # loss := loss_ce - flow_w * loss_flow
-                   'loss_ce': np.asarray(self.loss_ce).mean(),
-                   'flow_loss': np.asarray(self.flow_loss).mean(),
-                   # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
-                   'flow_loss_scaled': np.asarray(self.flow_loss_scaled).mean(),  # loss_flow * flow_w
-                   'flow_density_loss': np.asarray(self.flow_density_loss).mean(),
-                   # density component before scaling with flow_w
-                   'flow_loss_raw': np.asarray(self.flow_loss_raw).mean(),
-                   # loss_flow before substracting density component (and before scaling with flow_w)
-                   'theta_norm': np.asarray(self.theta_norm).mean(),
-                   'delta_theta_norm': np.asarray(self.delta_theta_norm).mean(),
-                   'delta_theta_std': np.asarray(self.delta_theta_std).mean()
-                   }
+                    'loss': torch.stack(self.loss).mean(dtype=torch.float).item(),  # loss := loss_ce - flow_w * loss_flow
+                    'loss_ce':np.asarray(self.loss_ce).mean(),
+                    'flow_loss': np.asarray(self.flow_loss).mean(),    # loss_flow := flow_output_loss - density_loss (before scaling with flow_w)
+                    'flow_loss_scaled': np.asarray(self.flow_loss_scaled).mean(),  # loss_flow * flow_w
+                    'flow_density_loss': np.asarray(self.flow_density_loss).mean(),    # density component before scaling with flow_w
+                    'flow_loss_raw': np.asarray(self.flow_loss_raw).mean(), # loss_flow before substracting density component (and before scaling with flow_w)
+                    'theta_norm': np.asarray(self.theta_norm).mean(),
+                    'delta_theta_norm': np.asarray(self.delta_theta_norm).mean(),
+                    'delta_theta_std': np.asarray(self.delta_theta_std).mean()
+                    }
             if clean_after:
                 self.clear_all_fields()
 
             return out
-
         def append(self, atrib_name, value):
             self.assert_exist(atrib_name)
             if type(value) is torch.Tensor:
@@ -150,9 +139,8 @@ class FHyperMAML(MAML):
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
                                    layer_type='concatsquash', time_length=0.5, train_T=True, nonlinearity='tanh',
                                    use_adjoint=True, solver='dopri5', atol=1e-05, rtol=1e-05, batch_norm=False,
-                                   sync_bn=False, bn_lag=0, zdim=params.flow_zdim,
-                                   num_points_train=self.num_points_train,
-                                   num_points_test=self.num_points_test,
+                                   sync_bn=False, bn_lag=0, zdim=params.flow_zdim, num_points_train = self.num_points_train,
+                                   num_points_test = self.num_points_test,
                                    #    ------  DO TEGO MIEJSCA SA WAZNE ARGUMENTY ARCHITEKTURY flowa   ---------
                                    root_dir=None, use_latent_flow=False,
                                    use_deterministic_encoder=False,
@@ -221,8 +209,23 @@ class FHyperMAML(MAML):
                 self.flow_temp_scale = self.flow_temp_scale + self.flow_temp_step
 
     def _update_flow(self):
-        self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-        self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
+        assert self.flow_dkl_scale > 0 and self.flow_temp_scale > 0
+        
+        if self.single_test:
+            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
+            return
+        
+        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+                or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
+            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+        else:
+            self.flow.epoch_property.temp_w = self.flow_temp_scale
+        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
+                or self.flow.epoch_property.dkl_w > self.flow_dkl_stop_val:  # any numeric errors
+            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
+        else:
+            self.flow.epoch_property.dkl_w = self.flow_dkl_scale
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -302,66 +305,6 @@ class FHyperMAML(MAML):
     #         self.flow.epoch_property.temp_w = self.flow_temp_scale
     #     if self.flow.epoch_property.dkl_w == 0:
     #         self.flow.epoch_property.dkl_w = self.flow_dkl_scale
-    def update_weight_experiment(self,weight):
-        pass
-    def set_forward_experiment(self, x, num_points):
-        """Return delta params (adaptation) generated from support set of x.
-            Don't adapt anything, just return weights"""
-        self._update_flow()
-        self.flow.num_points = num_points
-        x = x.cuda()
-        x_var = Variable(x)
-        support_data = x_var[:, :self.n_support, :, :, :].contiguous().view(self.n_way * self.n_support,
-                                                                            *x.size()[2:])  # support data
-        support_data_labels = self.get_support_data_labels()
-
-        support_embeddings = self.feature(support_data)
-
-        if self.hm_detach_feature_net:
-            support_embeddings = support_embeddings.detach()
-
-        if self.enhance_embeddings:
-            with torch.no_grad():
-                logits = self.classifier.forward(support_embeddings).detach()
-                logits = F.softmax(logits, dim=1)
-
-            labels = support_data_labels.view(support_embeddings.shape[0], -1)
-            support_embeddings = torch.cat((support_embeddings, logits, labels), dim=1)
-
-        for weight in self.parameters():
-            weight.fast = None
-        self.zero_grad()
-
-        support_embeddings = self.apply_embeddings_strategy(support_embeddings)
-
-        if self.hm_detach_before_hyper_net:
-            support_embeddings = support_embeddings.detach()
-
-        if self.hm_use_class_batch_input:
-            delta_params_list = []
-            for name, param_net in self.hypernet_heads.items():
-
-                support_embeddings_resh = support_embeddings.reshape(
-                    self.n_way, -1
-                )
-
-                delta_params = param_net(support_embeddings_resh)
-                bias_neurons_num = self.target_net_param_shapes[name][0] // self.n_way
-                if self.hn_adaptation_strategy == 'increasing_alpha' and self.alpha < 1:
-                    delta_params = delta_params * self.alpha
-                delta_params_shape = delta_params.shape
-
-                delta_params = self.flow(delta_params)
-
-                delta_params = delta_params.reshape(-1, *delta_params_shape)
-                weights_delta = delta_params[:, :, :-bias_neurons_num]
-                bias_delta = delta_params[:, :, -bias_neurons_num:].squeeze(-1)
-                delta_params_list.extend([weights_delta, bias_delta])
-
-            return delta_params_list
-
-        else:
-            raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")
 
     def get_hn_delta_params(self, support_embeddings, train_stage):
         if self.hm_detach_before_hyper_net:
@@ -397,20 +340,17 @@ class FHyperMAML(MAML):
                         norm_warmup = False
                 if self.single_test:
                     norm_warmup = False
+                norm_warmup = False
 
-                flow_pass = self.hm_maml_warmup_coef < 1 or self.single_test
+                flow_pass = True
                 if flow_pass:
                     self._update_flow()
                     if self.single_test:
                         cond = False
                     else:
                         cond = train_stage
-                    delta_params, loss_flow = self.flow(delta_params, cond, norm_warmup)
-                    delta_params_std_list.append(torch.mean(torch.std(delta_params, dim=1)).item())
-                    density_loss = self.flow.get_density_loss(delta_params)
-                    raw_loss_flow_list.append(loss_flow)
-                    density_loss_list.append(density_loss)  # before scaling
-                    loss_flow = self.flow.epoch_property.dkl_w * (loss_flow - density_loss)
+                    delta_params = self.flow(delta_params, cond, norm_warmup)
+                    loss_flow = torch.tensor([0])
                 else:
                     loss_flow = torch.tensor([0])
 
@@ -418,6 +358,7 @@ class FHyperMAML(MAML):
                     total_loss_flow = loss_flow
                 else:
                     total_loss_flow = total_loss_flow + loss_flow
+
 
                 self.manager.append('delta_theta_norm', torch.linalg.vector_norm(delta_params, dim=1).mean().item())
                 delta_params = delta_params.reshape(-1, *delta_params_shape)
@@ -427,14 +368,6 @@ class FHyperMAML(MAML):
 
             total_loss_flow.cuda()
 
-            self.manager.append('flow_loss', total_loss_flow.item())
-            self.manager.append('delta_theta_std', sum(delta_params_std_list) / len(delta_params_std_list))
-            if not density_loss_list:
-                density_loss_list = [torch.tensor([0]).cuda()]
-            self.manager.append('flow_density_loss', torch.stack(density_loss_list).mean(dtype=torch.float).item())
-            if not raw_loss_flow_list:
-                raw_loss_flow_list = [torch.tensor([0]).cuda()]
-            self.manager.append('flow_loss_raw', torch.stack(raw_loss_flow_list).mean(dtype=torch.float).item())
             return delta_params_list, total_loss_flow
 
         else:
@@ -475,77 +408,19 @@ class FHyperMAML(MAML):
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
-        if self.hm_maml_warmup and not self.single_test:
-            self._update_hm_maml_warmup_coef()
-            if self.hm_maml_warmup_coef > 0.0:
-                fast_parameters = []
-                if self.hm_maml_update_feature_net:
-                    fet_fast_parameters = list(self.feature.parameters())
-                    for weight in self.feature.parameters():
-                        weight.fast = None
-                    self.feature.zero_grad()
-                    fast_parameters = fast_parameters + fet_fast_parameters
-
-                clf_fast_parameters = list(self.classifier.parameters())
-                for weight in self.classifier.parameters():
-                    weight.fast = None
-                self.classifier.zero_grad()
-                fast_parameters = fast_parameters + clf_fast_parameters
-
-                for task_step in range(self.task_update_num):
-                    scores = self.classifier(support_embeddings)
-
-                    loss_ce = self.loss_fn(scores, support_data_labels)
-
-                    # if self.hm_maml_warmup_coef < 1:
-                    #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters())).to(loss_ce)
-
-                    set_loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
-
-                    grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
-                                               allow_unused=True)  # build full graph support gradient of gradient
-
-                    if self.approx:
-                        grad = [g.detach() for g in
-                                grad]  # do not calculate gradient of gradient if using first order approximation
-
-                    if self.hm_maml_update_feature_net:
-                        # update weights of feature networ
-                        for k, weight in enumerate(self.feature.parameters()):
-                            update_value = self.train_lr * self.hm_maml_warmup_coef * grad[k]
-                            self._update_weight(weight, update_value)
-
-                    classifier_offset = len(fet_fast_parameters) if self.hm_maml_update_feature_net else 0
-
-                    if self.hm_maml_warmup_coef == 1:
-                        # update weights of classifier network by adding gradient
-                        for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = (self.train_lr * grad[classifier_offset + k]).unsqueeze(0)
-                            self._update_weight(weight, update_value)
-
-                    elif 0.0 < self.hm_maml_warmup_coef < 1.0:
-                        # update weights of classifier network by adding gradient and output of hypernetwork
-                        for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
-                                    (1 - self.hm_maml_warmup_coef) * delta_params_list[k]))
-                            self._update_weight(weight, update_value)
-            else:
-                for k, weight in enumerate(self.classifier.parameters()):
-                    update_value = delta_params_list[k]
-                    self._update_weight(weight, update_value)
-        else:
-            for k, weight in enumerate(self.classifier.parameters()):
-                update_value = delta_params_list[k]
-                self._update_weight(weight, update_value)
+        for k, weight in enumerate(self.classifier.parameters()):
+            update_value = delta_params_list[k]
+            self._update_weight(weight, update_value)
 
         def group_layers(lst):
             """ generates entries of layers (weights + bias)"""
             for i in range(0, len(lst), 2):
-                yield lst[i:i + 2]
+                yield lst[i:i+2]
 
         for w, b in group_layers(list(self.classifier.parameters())):
             weights = torch.cat([w.fast, b.fast.unsqueeze(-1)], axis=2)
-            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim=(1, 2)).mean().item())
+            self.manager.append('theta_norm', torch.linalg.vector_norm(weights, dim = (1, 2)).mean().item())
+
 
     def _get_list_of_delta_params(self, maml_warmup_used, support_embeddings, support_data_labels, train_stage):
         flow_loss = torch.tensor([0]).cuda()
@@ -569,7 +444,7 @@ class FHyperMAML(MAML):
 
             return delta_params, flow_loss
         else:
-            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()], flow_loss
+            return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()],flow_loss
 
     def forward(self, x):
         out = self.feature.forward(x)
@@ -601,8 +476,7 @@ class FHyperMAML(MAML):
         if self.hm_detach_feature_net:
             support_embeddings = support_embeddings.detach()
 
-        maml_warmup_used = (
-                (not self.single_test) and self.hm_maml_warmup and (self.epoch < self.hm_maml_warmup_epochs))
+        maml_warmup_used = False
 
         delta_params_list, flow_loss = self._get_list_of_delta_params(maml_warmup_used, support_embeddings,
                                                                       support_data_labels, train_stage)
@@ -647,25 +521,26 @@ class FHyperMAML(MAML):
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
-        self.manager.append('loss', loss)
+        self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
         y_labels = query_data_labels.cpu().numpy()
         top1_correct = np.sum(topk_ind == y_labels)
         task_accuracy = (top1_correct / len(query_data_labels)) * 100
-        self.manager.append('acc', task_accuracy)
+        self.manager.append('acc',task_accuracy)
+        # print(task_accuracy)
 
     def set_forward_loss_with_adaptation(self, x):
         scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
         loss_ce = self.loss_fn(scores, support_data_labels)
-        self.manager.append('loss_ce', loss_ce.item())
+        self.manager.append('loss_ce',loss_ce.item())
         # if self.hm_maml_warmup_coef < 1:
         #     flow_loss = flow_loss - self.flow.get_density_loss(list(self.classifier.parameters()))
         loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
-        self.manager.append('loss', loss)
+        self.manager.append('loss',loss)
 
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy().flatten()
@@ -714,16 +589,15 @@ class FHyperMAML(MAML):
                 # loss_all = []
             optimizer.zero_grad()
             if i % print_freq == 0:
-                # print(self.manager.loss)
+                #print(self.manager.loss)
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
-                                                                             torch.stack(self.manager.loss).sum(
-                                                                                 0).item() / float(i + 1)))
+                                                                             torch.stack(self.manager.loss).sum(0).item() / float(i + 1)))
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._sample_dkl_step()
-            # print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
-            # f"temp_w {self.flow.epoch_property.temp_w}")
+            #print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
+            #f"temp_w {self.flow.epoch_property.temp_w}")
 
         # acc_all = np.asarray(acc_all)
         # acc_mean = np.mean(acc_all)
@@ -777,7 +651,7 @@ class FHyperMAML(MAML):
                 self.n_query = x.size(1) - self.n_support
                 assert self.n_way == x.size(0), f"MAML do not support way change, {self.n_way=}, {x.size(0)=}"
                 s = time()
-                correct_this, count_this = self.correct(x)
+                correct_this, count_this, loss_ce_test = self.correct(x)
                 t = time()
                 acc_all.append(correct_this / count_this * 100)
                 eval_time += (t - s)
@@ -786,6 +660,8 @@ class FHyperMAML(MAML):
             k: np.mean(v) if len(v) > 0 else 0
             for (k, v) in acc_at.items()
         }
+        if not self.hm_set_forward_with_adaptation:
+            metrics["ce_loss_test"] = loss_ce_test.item()
 
         num_tasks = len(acc_all)
         acc_all = np.asarray(acc_all)
@@ -852,7 +728,10 @@ class FHyperMAML(MAML):
         scores, *_ = self.set_forward(x)
         y_query = np.repeat(range(self.n_way), self.n_query)
 
+        with torch.no_grad():
+            loss_ce = self.loss_fn(scores, torch.from_numpy(y_query).cuda())
+
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy()
         top1_correct = np.sum(topk_ind[:, 0] == y_query)
-        return float(top1_correct), len(y_query)
+        return float(top1_correct), len(y_query), loss_ce

@@ -252,12 +252,13 @@ def experiment(params_experiment):
     query_datas1 = []
     support_datas2 = []
     query_datas2 = []
+    data = []
     model.train()
 
     parameters_generated_from_support = None
     # train on 'seen' data
     for i, x in enumerate(features):
-        parameters_generated_from_support = model.set_forward_experiment(x, num_samples)  # get tuning
+        data.append(x)
         x = x.cuda()
         x_var = torch.autograd.Variable(x)
         support_data = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
@@ -298,15 +299,14 @@ def experiment(params_experiment):
     q2 = {}
     # model.weight_set_num_train = 1
     # model.weight_set_num_test = 1
+    model.train()
     for num in range(num_samples):
-        delta_params_list = [parameters_generated_from_support[0][num], parameters_generated_from_support[1][num]]
-
+        print(f'{num+1}/{num_samples}')
         for k,weight in enumerate(model.classifier.parameters()):
             weight.fast=None
 
-        for k, weight in enumerate(model.classifier.parameters()):
-            update_value = delta_params_list[k]
-            model._update_weight(weight, update_value)
+        model.set_forward_loss(data[0])
+
         for i, support_data1 in enumerate(support_datas1):
             if i not in s1:
                 s1[i] = []
@@ -337,8 +337,7 @@ def experiment(params_experiment):
         top1_correct = np.sum(topk_ind == y_labels)
         task_accuracy = (top1_correct / len(query_data_labels)) * 100
         print(task_accuracy)
-        exit()
-
+        
     plot_histograms(neptune_run, s1, s2, q1, q2)
 
 
