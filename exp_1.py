@@ -16,6 +16,8 @@ import configs
 from data.datamgr import SetDataManager
 from methods.hypernets.fhypermaml import FHyperMAML
 
+import backbone
+
 from io_utils import model_dict, parse_args, get_best_file, setup_neptune
 
 save_numeric_data = True
@@ -213,6 +215,10 @@ def experiment(params_experiment):
         assert params_experiment.model == 'Conv4' and not params_experiment.train_aug, 'omniglot only support Conv4 without augmentation'
 
     if params_experiment.method == 'fhyper_maml':
+        backbone.ConvBlock.maml = True
+        backbone.SimpleBlock.maml = True
+        backbone.BottleneckBlock.maml = True
+        backbone.ResNet.maml = True
         model = FHyperMAML(model_dict[params_experiment.model], params=params_experiment,
                            approx=(params_experiment.method == 'maml_approx'),
                            **train_few_shot_params)
@@ -281,7 +287,6 @@ def experiment(params_experiment):
     features_unseen.append(features2)
 
     model.n_query = features[-1].size(1) - model.n_support
-    model.eval()
     for i, features2 in enumerate(features_unseen):
         # no tuning
         features2 = features2.cuda()
@@ -297,14 +302,14 @@ def experiment(params_experiment):
     q1 = {}
     s2 = {}
     q2 = {}
-    # model.weight_set_num_train = 1
-    # model.weight_set_num_test = 1
-    model.train()
+
+    model.eval()
+    # model.train()
     for num in range(num_samples):
         for k,weight in enumerate(model.classifier.parameters()):
             weight.fast=None
         model.manager.clear_all_fields()
-        model.set_forward_loss(data[0])
+        model.set_forward(data[0])
 
         for i, support_data1 in enumerate(support_datas1):
             if i not in s1:
