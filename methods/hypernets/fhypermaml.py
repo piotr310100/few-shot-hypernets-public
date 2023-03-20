@@ -689,6 +689,7 @@ class FHyperMAML(MAML):
             self._sample_dkl_step()
             #print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
             #f"temp_w {self.flow.epoch_property.temp_w}")
+        self._dkl_downfall()
 
         # acc_all = np.asarray(acc_all)
         # acc_mean = np.mean(acc_all)
