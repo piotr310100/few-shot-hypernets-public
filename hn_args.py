@@ -91,4 +91,9 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     fhypermaml_args.add_argument('--flow_zdim',default=100,type=int,help='reduced dim of flow conditioning')
     fhypermaml_args.add_argument('--num_points_train',default=5,type=int,help='number of points to sample during training')
     fhypermaml_args.add_argument('--num_points_test',default=20,type=int,help='number of points to sample during testing')
+
+    fhypermaml_args.add_argument('--dkl_downfall_start_epoch',default=600,type=int,help='number of epoch for dkl loss downfall to start')
+    fhypermaml_args.add_argument('--dkl_downfall_stop_epoch',default=700,type=int,help='number of epoch for dkl loss downfall to stop')
+    fhypermaml_args.add_argument('--dkl_downfall_magnitude',default=1,type=int,help='magnitude of dkl downfall 10^-x')
+    fhypermaml_args.add_argument('--dkl_downfall_strategy',default="Linear", choices=["Linear", "Exp"] ,help='strategy for dkl loss downfall in flow')
     return parser

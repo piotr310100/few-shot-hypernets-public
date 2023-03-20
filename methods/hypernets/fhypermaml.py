@@ -134,6 +134,12 @@ class FHyperMAML(MAML):
         self.num_points_train = params.num_points_train
         self.num_points_test = params.num_points_test
 
+        self.dkl_downfall_strategy = params.dkl_downfall_strategy
+        self.dkl_downfall_magnitude = params.dkl_downfall_magnitude
+        self.dkl_downfall_stop_epoch = params.dkl_downfall_stop_epoch
+        self.dkl_downfall_start_epoch = params.dkl_downfall_start_epoch
+        self.dkl_downfall_linear_delta = None
+
         self.flow_args = Namespace(shape1=5, shape2=65, num_zeros_warmup_epochs=self.flow_num_zeros_warmup_epochs,
                                    model_type='PointNet', logprob_type='Normal', input_dim=325, dims='500',
                                    latent_dims='256', hyper_dims='256', num_blocks=1, latent_num_blocks=1,
@@ -412,11 +418,26 @@ class FHyperMAML(MAML):
             self.hm_maml_warmup_coef = 1.0
             return
         elif self.hm_maml_warmup_epochs <= self.epoch < self.hm_maml_warmup_epochs + self.hm_maml_warmup_switch_epochs:
-            self.hm_maml_warmup_coef = (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / (
-                    self.hm_maml_warmup_switch_epochs + 1)
+            self.hm_maml_warmup_coef = (self.hm_maml_warmup_switch_epochs + self.hm_maml_warmup_epochs - self.epoch) / \
+                                       (self.hm_maml_warmup_switch_epochs + 1)
             return
         self.hm_maml_warmup_coef = 0
 
+    def _dkl_downfall(self):
+        # self.dkl_downfall_strategy = params.dkl_downfall_strategy
+        # self.dkl_downfall_magnitude = params.dkl_downfall_magnitude
+        # self.dkl_downfall_stop_epoch = params.dkl_downfall_stop_epoch
+        # self.dkl_downfall_start_epoch = params.dkl_downfall_start_epoch
+        if self.dkl_downfall_strategy == 'Exp':
+            raise NotImplementedError()
+
+        if self.dkl_downfall_start_epoch <= self.epoch < self.dkl_downfall_stop_epoch:
+            if not self.dkl_downfall_linear_delta:
+                num_epochs = self.dkl_downfall_stop_epoch - self.dkl_downfall_start_epoch
+                assert num_epochs >= 0
+                self.dkl_downfall_linear_delta = (1 - 10 ** (-self.dkl_downfall_magnitude) ) * \
+                                                 self.flow.epoch_property.dkl_w / num_epochs
+            self.flow.epoch_property.dkl_w = self.flow.epoch_property.dkl_w - self.dkl_downfall_linear_delta
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
         if self.hm_maml_warmup and not self.single_test:
