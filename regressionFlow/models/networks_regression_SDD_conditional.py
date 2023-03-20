@@ -110,30 +110,24 @@ class ListModule(nn.Module):
 
 class CRegression(nn.Module):
     class EpochManager:
-        def __init__(self, num_zeros_warmup_epochs):
+        def __init__(self):
             # changes via fhypermaml module
             self.temp_w = 0
             self.dkl_w = 0
             self.curr_epoch = 0
-            self.num_zeros_warmup_epochs = num_zeros_warmup_epochs
-
-        def is_zero_warmup_epoch(self):
-            return self.curr_epoch < self.num_zeros_warmup_epochs
 
     def __init__(self, args):
         super(CRegression, self).__init__()
         self.input_dim = args.input_dim
         self.hn_shape = torch.Size([args.shape1, args.shape2])
-        self.flownet = FlowNetS()
         self.args = args
         self.point_cnf = get_point_cnf(args)
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
-        self.const_sample = self.sample_gaussian((self.hn_shape[0] * self.hn_shape[1], 1), None, self.gpu)
         self.prior_distribution = torch.distributions.MultivariateNormal(
             torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
             torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
-        self.epoch_property = self.EpochManager(args.num_zeros_warmup_epochs)
+        self.epoch_property = self.EpochManager()
         self.dim_reducer_hn = torch.nn.Linear(self.hn_shape[0] * self.hn_shape[1], args.zdim)
         self.num_points_train = args.num_points_train
         self.num_points_test = args.num_points_test
@@ -153,11 +147,8 @@ class CRegression(nn.Module):
         return opt
 
     def get_sample(self, num_points):
-        if not self.epoch_property.is_zero_warmup_epoch():
-            y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
-                                                                  self.gpu)
-        else:
-            y = torch.zeros(1, num_points, self.hn_shape[0] * self.hn_shape[1]).cuda(self.gpu)
+        y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
+                                                                self.gpu)
         return y
 
     # def get_fast_weights(self, global_weight, delta_weight):
@@ -173,7 +164,7 @@ class CRegression(nn.Module):
     #         return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
     #     return torch.tensor([0])
 
-    def forward(self, x: torch.tensor, train_stage, norm_warmup = False):  # x.shape = 5,65 = 5,64 + bias
+    def forward(self, x: torch.tensor, train_stage):  # x.shape = 5,65 = 5,64 + bias
         # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
         z = x.flatten()
         # 2) wylosuj sample z rozkladu normalnego
@@ -183,28 +174,15 @@ class CRegression(nn.Module):
         z = self.dim_reducer_hn(z).reshape(-1)
         delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
-        if norm_warmup:
-            delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
-            loss = torch.linalg.vector_norm(delta_target_networks_weights, dim = 1).mean()
-            #delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
-            return delta_target_networks_weights, loss
+        # zaktualizowane parametry TN do liczenia lossu
+        y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
+        delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+        log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
+        log_px = log_py - delta_log_py
+        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+        loss = log_px.reshape(1)
 
-        if not self.epoch_property.is_zero_warmup_epoch():
-            # zaktualizowane parametry TN do liczenia lossu
-            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
-            # tu byly wczesniej sumy
-            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
-            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
-            log_px = log_py - delta_log_py
-            # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-            loss = log_px.reshape(1)
-            # loss_density = self.get_density_loss(list(global_weights), delta_target_networks_weights)
-            # loss = self.epoch_property.dkl_w * (loss - loss_density)
-        else:
-            loss = torch.tensor([0])
-        # print(f"loss flow {loss}")
         delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
-        #delta_target_networks_weights = delta_target_networks_weights.mean(dim = 0)
         return delta_target_networks_weights, loss
 
     @staticmethod
