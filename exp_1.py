@@ -15,42 +15,15 @@ from os import path
 import configs
 from data.datamgr import SetDataManager
 from methods.hypernets.fhypermaml import FHyperMAML
+from methods.hypernets.bayeshmaml import BayesHMAML
+
+from torchmetrics.classification import MulticlassCalibrationError
 
 import backbone
 
 from io_utils import model_dict, parse_args, get_best_file, setup_neptune
 
 save_numeric_data = True
-
-
-# def plot_mu_sigma(neptune_run, model, i, save_numeric_data=save_numeric_data):
-#     # get flattened mu and sigma
-#     sigma, mu = model._mu_sigma(True)
-#     # plotting to neptune
-#     if sigma is not None:
-#         for name, value in sigma.items():
-#             fig = plt.figure()
-#             plt.plot(value, 's')
-#             neptune_run[f"sigma / {i} / {name} / plot"].upload(File.as_image(fig))
-#             plt.close(fig)
-#             fig = plt.figure()
-#             plt.hist(value, edgecolor="black")
-#             neptune_run[f"sigma / {i} / {name} / histogram"].upload(File.as_image(fig))
-#             plt.close(fig)
-#             if save_numeric_data:
-#                 neptune_run[f"sigma / {i} / {name} / data"].upload(File.as_pickle(value))
-#     if mu is not None:
-#         for name, value in mu.items():
-#             fig = plt.figure()
-#             plt.plot(value, 's')
-#             neptune_run[f"mu / {i} / {name} / plot"].upload(File.as_image(fig))
-#             plt.close(fig)
-#             fig = plt.figure()
-#             plt.hist(value, edgecolor="black")
-#             neptune_run[f"mu / {i} / {name} / histogram"].upload(File.as_image(fig))
-#             plt.close(fig)
-#             if save_numeric_data:
-#                 neptune_run[f"mu / {i} / {name} / data"].upload(File.as_pickle(value))
 
 # plot uncertainty in classification
 def plot_histograms(neptune_run, s1, s2, q1, q2, save_numeric_data=save_numeric_data):
@@ -222,6 +195,22 @@ def experiment(params_experiment):
         model = FHyperMAML(model_dict[params_experiment.model], params=params_experiment,
                            approx=(params_experiment.method == 'maml_approx'),
                            **train_few_shot_params)
+        
+        if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+            model.n_task = 32
+            model.train_lr = 0.1
+    elif params_experiment.method == 'bayes_hmaml':
+        backbone.ConvBlock.maml = True
+        backbone.SimpleBlock.maml = True
+        backbone.BottleneckBlock.maml = True
+        backbone.ResNet.maml = True
+        model = BayesHMAML(model_dict[params_experiment.model], params=params_experiment,
+                           approx=(params_experiment.method == 'maml_approx'),
+                           **train_few_shot_params)
+        
+        model.weight_set_num_test = 5
+        model.weight_set_num_train = 5
+
         if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
             model.n_task = 32
             model.train_lr = 0.1
@@ -261,7 +250,6 @@ def experiment(params_experiment):
     data = []
     model.train()
 
-    parameters_generated_from_support = None
     # train on 'seen' data
     for i, x in enumerate(features):
         data.append(x)
@@ -308,7 +296,8 @@ def experiment(params_experiment):
     for num in range(num_samples):
         for k,weight in enumerate(model.classifier.parameters()):
             weight.fast=None
-        model.manager.clear_all_fields()
+        if params_experiment.method == "fhyper_maml":
+            model.manager.clear_all_fields()
         model.set_forward(data[0])
 
         for i, support_data1 in enumerate(support_datas1):
