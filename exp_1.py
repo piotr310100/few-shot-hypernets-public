@@ -218,8 +218,8 @@ def experiment(params_experiment):
     model = BayesHMAML(model_dict[params_experiment.model], params=params_experiment,
                         approx=(params_experiment.method == 'maml_approx'),
                         **train_few_shot_params)
-    model.weight_set_num_test = 5
-    model.weight_set_num_train = 5
+    model.weight_set_num_test = 1
+    model.weight_set_num_train = 1
 
     if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
         model.n_task = 32
