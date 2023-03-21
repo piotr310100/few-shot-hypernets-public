@@ -17,7 +17,7 @@ from data.datamgr import SetDataManager
 from methods.hypernets.fhypermaml import FHyperMAML
 from methods.hypernets.bayeshmaml import BayesHMAML
 
-from torchmetrics.classification import MulticlassCalibrationError
+from torchmetrics.functional.classification import multiclass_calibration_error as MCE
 
 import backbone
 
@@ -26,101 +26,97 @@ from io_utils import model_dict, parse_args, get_best_file, setup_neptune
 save_numeric_data = True
 
 # plot uncertainty in classification
-def plot_histograms(neptune_run, s1, s2, q1, q2, save_numeric_data=save_numeric_data):
+def plot_histograms(neptune_run, model_name, s1, s2, q1, q2, save_numeric_data=save_numeric_data):
     # seen support
-    for i, scores in s1.items():
+    if save_numeric_data:
+        path = f'exp_1_data/Seen/Support/{model_name}'
+        os.mkdir(path)
+    scores = np.transpose(np.array(s1))
+    for k, score in enumerate(scores):
+        score = np.array(score)
+        # print(f"score shape {score.shape}")
+        fig = plt.figure()
+        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
+        mu = np.mean(score)
+        std = np.std(score)
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
+        if neptune_run:
+            neptune_run[f"Seen / Support / {model_name} / Class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
         if save_numeric_data:
-            path = f'exp_1_data/Seen/Support/{i}'
-            os.mkdir(path)
-        scores = np.transpose(np.array(scores))
-        for k, score in enumerate(scores):
-            score = np.array(score)
-            # print(f"score shape {score.shape}")
-            fig = plt.figure()
-            plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-            mu = np.mean(score)
-            std = np.std(score)
-            plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
             if neptune_run:
-                neptune_run[f"Seen / Support / {i} / Class {k} histogram"].upload(File.as_image(fig))
-            plt.close(fig)
-            if save_numeric_data:
-                if neptune_run:
-                    neptune_run[f"Seen / Support / {i} / Class {k} data"].upload(File.as_pickle(score))
-                filepath = path + f'/Class_{k}_data'
-                with open(filepath, 'wb') as f:
-                    pickle.dump(score, f)
+                neptune_run[f"Seen / Support / {model_name} / Class {k} data"].upload(File.as_pickle(score))
+            filepath = path + f'/Class_{k}_data'
+            with open(filepath, 'wb') as f:
+                pickle.dump(score, f)
 
     # seen query
-    for i, scores in q1.items():
+    if save_numeric_data:
+        path = f'exp_1_data/Seen/Query/{model_name}'
+        os.mkdir(path)
+    scores = np.transpose(np.array(q1))
+    for k, score in enumerate(scores):
+        score = np.array(score)
+        fig = plt.figure()
+        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
+        mu = np.mean(score)
+        std = np.std(score)
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
+        neptune_run[f"Seen / Query / {model_name} / Class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
+        # save on neptune
         if save_numeric_data:
-            path = f'exp_1_data/Seen/Query/{i}'
-            os.mkdir(path)
-        scores = np.transpose(np.array(scores))
-        for k, score in enumerate(scores):
-            score = np.array(score)
-            fig = plt.figure()
-            plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-            mu = np.mean(score)
-            std = np.std(score)
-            plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-            neptune_run[f"Seen / Query / {i} / Class {k} histogram"].upload(File.as_image(fig))
-            plt.close(fig)
-            # save on neptune
-            if save_numeric_data:
-                if neptune_run:
-                    neptune_run[f"Seen / Query / {i} / Class {k} data"].upload(File.as_pickle(score))
-                filepath = path + f'/Class_{k}_data'
-                with open(filepath, 'wb') as f:
-                    pickle.dump(score, f)
+            if neptune_run:
+                neptune_run[f"Seen / Query / {model_name} / Class {k} data"].upload(File.as_pickle(score))
+            filepath = path + f'/Class_{k}_data'
+            with open(filepath, 'wb') as f:
+                pickle.dump(score, f)
 
     # unseen support
-    for i, scores in s2.items():
+    if save_numeric_data:
+        path = f'exp_1_data/Unseen/Support/{model_name}'
+        os.mkdir(path)
+    scores = np.transpose(np.array(s2))
+    for k, score in enumerate(scores):
+        score = np.array(score)
+        fig = plt.figure()
+        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
+        mu = np.mean(score)
+        std = np.std(score)
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
+        neptune_run[f"Unseen / Support / {model_name} / Class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
         if save_numeric_data:
-            path = f'exp_1_data/Unseen/Support/{i}'
-            os.mkdir(path)
-        scores = np.transpose(np.array(scores))
-        for k, score in enumerate(scores):
-            score = np.array(score)
-            fig = plt.figure()
-            plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-            mu = np.mean(score)
-            std = np.std(score)
-            plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-            neptune_run[f"Unseen / Support / {i} / Class {k} histogram"].upload(File.as_image(fig))
-            plt.close(fig)
-            if save_numeric_data:
-                # save on neptune
-                neptune_run[f"Unseen / Support / {i} / Class {k} data"].upload(File.as_pickle(score))
-                # save file locally
-                filepath = path + f'/Class_{k}_data'
-                with open(filepath, 'wb') as f:
-                    pickle.dump(score, f)
+            # save on neptune
+            neptune_run[f"Unseen / Support / {model_name} / Class {k} data"].upload(File.as_pickle(score))
+            # save file locally
+            filepath = path + f'/Class_{k}_data'
+            with open(filepath, 'wb') as f:
+                pickle.dump(score, f)
     # unseen query
-    for i, scores in q2.items():
+    if save_numeric_data:
+        path = f'exp_1_data/Unseen/Query/{model_name}'
+        os.mkdir(path)
+    scores = np.transpose(np.array(q2))
+    for k, score in enumerate(scores):
+        score = np.array(score)
+        fig = plt.figure()
+        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
+        mu = np.mean(score)
+        std = np.std(score)
+        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
+        neptune_run[f"Unseen / Query / {model_name} / Class {k} histogram"].upload(File.as_image(fig))
+        plt.close(fig)
         if save_numeric_data:
-            path = f'exp_1_data/Unseen/Query/{i}'
-            os.mkdir(path)
-        scores = np.transpose(np.array(scores))
-        for k, score in enumerate(scores):
-            score = np.array(score)
-            fig = plt.figure()
-            plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-            mu = np.mean(score)
-            std = np.std(score)
-            plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-            neptune_run[f"Unseen / Query / {i} / Class {k} histogram"].upload(File.as_image(fig))
-            plt.close(fig)
-            if save_numeric_data:
-                # save on neptune
-                neptune_run[f"Unseen / Query / {i} / Class {k} data"].upload(File.as_pickle(score))
-                # save file locally
-                filepath = path + f'/Class_{k}_data'
-                with open(filepath, 'wb') as f:
-                    pickle.dump(score, f)
+            # save on neptune
+            neptune_run[f"Unseen / Query / {model_name} / Class {k} data"].upload(File.as_pickle(score))
+            # save file locally
+            filepath = path + f'/Class_{k}_data'
+            with open(filepath, 'wb') as f:
+                pickle.dump(score, f)
 
 
-def getCheckpointDir(params, configs):
+def getCheckpointDir(params, configs, suffix):
     checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (
         configs.save_dir,
         params.dataset,
@@ -132,8 +128,7 @@ def getCheckpointDir(params, configs):
         checkpoint_dir += '_aug'
     if not params.method in ['baseline', 'baseline++']:
         checkpoint_dir += '_%dway_%dshot' % (params.train_n_way, params.n_shot)
-    if params.checkpoint_suffix != "":
-        checkpoint_dir = checkpoint_dir + "_" + params.checkpoint_suffix
+    checkpoint_dir = checkpoint_dir + "_" + suffix
 
     if params.dataset == "cross":
         if not Path(checkpoint_dir).exists():
@@ -187,39 +182,53 @@ def experiment(params_experiment):
     if params_experiment.dataset in ['omniglot', 'cross_char']:
         assert params_experiment.model == 'Conv4' and not params_experiment.train_aug, 'omniglot only support Conv4 without augmentation'
 
-    if params_experiment.method == 'fhyper_maml':
-        backbone.ConvBlock.maml = True
-        backbone.SimpleBlock.maml = True
-        backbone.BottleneckBlock.maml = True
-        backbone.ResNet.maml = True
-        model = FHyperMAML(model_dict[params_experiment.model], params=params_experiment,
-                           approx=(params_experiment.method == 'maml_approx'),
-                           **train_few_shot_params)
-        
-        if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
-            model.n_task = 32
-            model.train_lr = 0.1
-    elif params_experiment.method == 'bayes_hmaml':
-        backbone.ConvBlock.maml = True
-        backbone.SimpleBlock.maml = True
-        backbone.BottleneckBlock.maml = True
-        backbone.ResNet.maml = True
-        model = BayesHMAML(model_dict[params_experiment.model], params=params_experiment,
-                           approx=(params_experiment.method == 'maml_approx'),
-                           **train_few_shot_params)
-        
-        model.weight_set_num_test = 5
-        model.weight_set_num_train = 5
+    models = {}
 
-        if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
-            model.n_task = 32
-            model.train_lr = 0.1
-    else:
-        raise ValueError('Experiment for fhyper_maml only')
-
+    backbone.ConvBlock.maml = True
+    backbone.SimpleBlock.maml = True
+    backbone.BottleneckBlock.maml = True
+    backbone.ResNet.maml = True
+    model = FHyperMAML(model_dict[params_experiment.model], params=params_experiment,
+                        approx=(params_experiment.method == 'maml_approx'),
+                        **train_few_shot_params)
+    
+    if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+        model.n_task = 32
+        model.train_lr = 0.1
     model = model.cuda()
 
-    params_experiment.checkpoint_dir = getCheckpointDir(params_experiment, configs)
+    suffix = 'fhyper_maml_exp'
+    params_experiment.method = 'fhyper_maml'
+    checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
+
+    modelfile = get_best_file(checkpoint_dir)  # load best from given model
+    print("Using model file", modelfile)
+    if modelfile is not None:
+        tmp = torch.load(modelfile)
+        model.load_state_dict(tmp['state'])
+    else:
+        print("[WARNING] Cannot find 'best_file.tar' in: " + str(params_experiment.checkpoint_dir))
+
+    models['fhyper_maml'] = model
+    #######################################
+    backbone.ConvBlock.maml = True
+    backbone.SimpleBlock.maml = True
+    backbone.BottleneckBlock.maml = True
+    backbone.ResNet.maml = True
+    model = BayesHMAML(model_dict[params_experiment.model], params=params_experiment,
+                        approx=(params_experiment.method == 'maml_approx'),
+                        **train_few_shot_params)
+    model.weight_set_num_test = 5
+    model.weight_set_num_train = 5
+
+    if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+        model.n_task = 32
+        model.train_lr = 0.1   
+    model = model.cuda()
+
+    suffix = 'bayes_hmaml_exp'
+    params_experiment.method = 'bayes_hmaml'
+    params_experiment.checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
 
     modelfile = get_best_file(params_experiment.checkpoint_dir)  # load best from given model
     print("Using model file", modelfile)
@@ -229,112 +238,107 @@ def experiment(params_experiment):
     else:
         print("[WARNING] Cannot find 'best_file.tar' in: " + str(params_experiment.checkpoint_dir))
 
+    models['bayes_hmaml'] = model        
+
     neptune_run = setup_neptune(params_experiment)
     #neptune_run = None
     # primary batches for adaptation
-    features = []
-    labels = []
 
     x, labels1 = next(iter(val_loader))
-    if labels:
-        while reduce(np.intersect1d, (*labels, labels1)).size > 0:
-            x, labels1 = next(iter(val_loader))
-    features.append(x)
-    labels.append(labels1)
+    features = x
 
-    model.n_query = features[0].size(1) - model.n_support
-    support_datas1 = []
-    query_datas1 = []
-    support_datas2 = []
-    query_datas2 = []
-    data = []
-    model.train()
+    for _, model in models.items():
+        model.n_query = features.size(1) - model.n_support
+        model.train()
 
-    # train on 'seen' data
-    for i, x in enumerate(features):
-        data.append(x)
-        x = x.cuda()
-        x_var = torch.autograd.Variable(x)
-        support_data = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
-                                                                             *x.size()[2:])  # support data
-        query_data = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
-                                                                           *x.size()[2:])  # query data
-        support_datas1.append(support_data)
-        query_datas1.append(query_data)
-
-    features_unseen = []
+    data = features
+    features = features.cuda()
+    x_var = torch.autograd.Variable(features)
+    support_data1 = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
+                                                                            *x.size()[2:])  # support data
+    query_data1 = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
+                                                                        *x.size()[2:])  # query data
 
     # new batch for experiment
     features2, labels2 = next(iter(val_loader))
     # print('finding val batch')
     # if there are repetitions between batches get another batch
-    while reduce(np.intersect1d, (*labels, labels2)).size > 0:
+    while reduce(np.intersect1d, (labels1, labels2)).size > 0:
         features2, labels2 = next(iter(val_loader))
     print(labels2)
-    labels.append(labels2)
-    features_unseen.append(features2)
+    features_unseen = features2
 
-    model.n_query = features[-1].size(1) - model.n_support
-    for i, features2 in enumerate(features_unseen):
-        # no tuning
-        features2 = features2.cuda()
-        x2_var = torch.autograd.Variable(features2)
-        support_data2 = x2_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
-                                                                               *features2.size()[2:])  # support data
-        query_data2 = x2_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
-                                                                             *features2.size()[2:])  # query data
-        support_datas2.append(support_data2)
-        query_datas2.append(query_data2)
+    for _, model in models.items():
+        model.n_query = features2.size(1) - model.n_support
+    # no tuning
+    features_unseen = features_unseen.cuda()
+    x2_var = torch.autograd.Variable(features_unseen)
+    support_data2 = x2_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
+                                                                            *features2.size()[2:])  # support data
+    query_data2 = x2_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
+                                                                            *features2.size()[2:])  # query data
+    for _, model in models.items():
+        model.eval()
+        # model.train()
 
-    s1 = {}
-    q1 = {}
-    s2 = {}
-    q2 = {}
+    for model_name, model in models.items():
+        print("Model name:", model_name)
+        s1 = []
+        q1 = []
+        s2 = []
+        q2 = []
 
-    model.eval()
-    # model.train()
-    for num in range(num_samples):
-        for k,weight in enumerate(model.classifier.parameters()):
-            weight.fast=None
-        if params_experiment.method == "fhyper_maml":
-            model.manager.clear_all_fields()
-        model.set_forward(data[0])
-
-        for i, support_data1 in enumerate(support_datas1):
-            if i not in s1:
-                s1[i] = []
-            s1[i].append(F.softmax(model(support_data1), dim=1)[0].clone().data.cpu().numpy())
-        for i, query_data1 in enumerate(query_datas1):
-            if i not in q1:
-                q1[i] = []
-            q1[i].append(F.softmax(model(query_data1), dim=1)[0].clone().data.cpu().numpy())
-        if num % 25 == 0:
-            print(f'Accuracy on query at: {num}/{num_samples}')
-            query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
-            topk_scores, topk_labels = model(query_data1).data.topk(1, 1, True, True)
-            topk_ind = topk_labels.cpu().numpy().flatten()
-            y_labels = query_data_labels.cpu().numpy()
-            top1_correct = np.sum(topk_ind == y_labels)
-            task_accuracy = (top1_correct / len(query_data_labels)) * 100
-            print(task_accuracy)
-        for i, support_data2 in enumerate(support_datas2):
-            if i not in s2:
-                s2[i] = []
-            s2[i].append(F.softmax(model(support_data2), dim=1)[0].clone().data.cpu().numpy())
-        for i, query_data2 in enumerate(query_datas2):
-            if i not in q2:
-                q2[i] = []
-            q2[i].append(F.softmax(model(query_data2), dim=1)[0].clone().data.cpu().numpy())
-        if num % 25 == 0:
-            query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
-            topk_scores, topk_labels = model(query_data2).data.topk(1, 1, True, True)
-            topk_ind = topk_labels.cpu().numpy().flatten()
-            y_labels = query_data_labels.cpu().numpy()
-            top1_correct = np.sum(topk_ind == y_labels)
-            task_accuracy = (top1_correct / len(query_data_labels)) * 100
-            print(task_accuracy)
+        calibration_error = np.zeros(4, float)
         
-    plot_histograms(neptune_run, s1, s2, q1, q2)
+        for num in range(num_samples):
+            for k,weight in enumerate(model.classifier.parameters()):
+                weight.fast=None
+            if model_name == 'fhyper_maml':
+                model.manager.clear_all_fields()
+            model.set_forward(data)
+
+            out = F.softmax(model(support_data1), dim=1)
+            s1.append(out[0].clone().data.cpu().numpy())
+            s1_labels = torch.from_numpy(np.repeat(range(model.n_way), model.n_support)).cuda()
+            calibration_error[0] += MCE(out, s1_labels, num_classes = 5, validate_args = False).item()
+            
+            out = F.softmax(model(query_data1), dim=1)
+            q1.append(out[0].clone().data.cpu().numpy())
+            q1_labels = torch.from_numpy(np.repeat(range(n_way), n_query)).cuda()
+            calibration_error[1] += MCE(out, q1_labels, num_classes = 5, validate_args = False).item()
+            if num % 25 == 0:
+                print(f'Accuracy on query at: {num}/{num_samples}')
+                query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
+                topk_scores, topk_labels = model(query_data1).data.topk(1, 1, True, True)
+                topk_ind = topk_labels.cpu().numpy().flatten()
+                y_labels = query_data_labels.cpu().numpy()
+                top1_correct = np.sum(topk_ind == y_labels)
+                task_accuracy = (top1_correct / len(query_data_labels)) * 100
+                print(task_accuracy)
+
+            out = F.softmax(model(support_data2), dim=1)
+            s2.append(out[0].clone().data.cpu().numpy())
+            s2_labels = torch.from_numpy(np.repeat(range(model.n_way), model.n_support)).cuda()
+            calibration_error[2] += MCE(out, s2_labels, num_classes = 5, validate_args = False).item()
+
+            out = F.softmax(model(query_data2), dim=1)
+            q2.append(out[0].clone().data.cpu().numpy())
+            q2_labels = torch.from_numpy(np.repeat(range(n_way), n_query)).cuda()
+            calibration_error[3] += MCE(out, q2_labels, num_classes = 5, validate_args = False).item()
+            if num % 25 == 0:
+                query_data_labels = torch.from_numpy(np.repeat(range(n_way), n_query))
+                topk_scores, topk_labels = model(query_data2).data.topk(1, 1, True, True)
+                topk_ind = topk_labels.cpu().numpy().flatten()
+                y_labels = query_data_labels.cpu().numpy()
+                top1_correct = np.sum(topk_ind == y_labels)
+                task_accuracy = (top1_correct / len(query_data_labels)) * 100
+                print(task_accuracy)
+
+        neptune_run[f'{model_name}/s1'] = calibration_error[0] / num_samples
+        neptune_run[f'{model_name}/q1'] = calibration_error[1] / num_samples
+        neptune_run[f'{model_name}/s2'] = calibration_error[2] / num_samples
+        neptune_run[f'{model_name}/q2'] = calibration_error[3] / num_samples
+        plot_histograms(neptune_run, model_name, s1, s2, q1, q2)
 
 
 def main():

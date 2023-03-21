@@ -210,22 +210,10 @@ class FHyperMAML(MAML):
 
     def _update_flow(self):
         assert self.flow_dkl_scale > 0 and self.flow_temp_scale > 0
-        
-        if self.single_test:
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
-            return
-        
-        if self.flow_num_temperature_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-        else:
-            self.flow.epoch_property.temp_w = self.flow_temp_scale
-        if self.flow_num_dkl_warmup_epochs + self.flow_num_zeros_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.dkl_w > self.flow_dkl_stop_val:  # any numeric errors
-            self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
-        else:
-            self.flow.epoch_property.dkl_w = self.flow_dkl_scale
+        self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+        self.flow.epoch_property.dkl_w = self.flow_dkl_stop_val
+
+
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
