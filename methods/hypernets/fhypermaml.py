@@ -377,13 +377,11 @@ class FHyperMAML(MAML):
         self.hm_maml_warmup_coef = 0
 
     def _dkl_downfall(self):
+        if self.dkl_downfall_stop_epoch == -1:
+            self.dkl_downfall_stop_epoch = self.stop_epoch
         if self.dkl_downfall_strategy == 'None':
             self.flow.epoch_property.dkl_w = 1.0
             return
-        # self.dkl_downfall_strategy = params.dkl_downfall_strategy
-        # self.dkl_downfall_magnitude = params.dkl_downfall_magnitude
-        # self.dkl_downfall_stop_epoch = params.dkl_downfall_stop_epoch
-        # self.dkl_downfall_start_epoch = params.dkl_downfall_start_epoch
         if self.dkl_downfall_strategy == 'Exp':
             raise NotImplementedError()
 

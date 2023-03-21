@@ -86,7 +86,8 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     fhypermaml_args.add_argument('--num_points_test',default=20,type=int,help='number of points to sample during testing')
 
     fhypermaml_args.add_argument('--dkl_downfall_start_epoch',default=600,type=int,help='number of epoch for dkl loss downfall to start')
-    fhypermaml_args.add_argument('--dkl_downfall_stop_epoch',default=700,type=int,help='number of epoch for dkl loss downfall to stop')
+    fhypermaml_args.add_argument('--dkl_downfall_stop_epoch',default=-1,type=int,help='number of epoch for dkl loss downfall to stop (-1 means to downfall '
+                                                                                      'lasts to the end of training phase)')
     fhypermaml_args.add_argument('--dkl_downfall_magnitude',default=1,type=int,help='magnitude of dkl downfall 10^-x')
     fhypermaml_args.add_argument('--dkl_downfall_strategy',default="None", choices=["Linear", "Exp", "None"] ,help='strategy for dkl loss downfall in flow')
     return parser

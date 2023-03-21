@@ -124,9 +124,8 @@ class CRegression(nn.Module):
         self.point_cnf = get_point_cnf(args)
         self.gpu = args.gpu
         self.logprob_type = args.logprob_type
-        self.prior_distribution = torch.distributions.MultivariateNormal(
-            torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
-            torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda())
+        self.prior_distribution = None
+        self.prior_distribution_temp = None
         self.epoch_property = self.EpochManager()
         self.dim_reducer_hn = torch.nn.Linear(self.hn_shape[0] * self.hn_shape[1], args.zdim)
         self.num_points_train = args.num_points_train
@@ -147,34 +146,32 @@ class CRegression(nn.Module):
         return opt
 
     def get_sample(self, num_points):
+        if self.prior_distribution_temp is None:
+            self.prior_distribution_temp = self.epoch_property.temp_w
         y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
                                                                 self.gpu)
         return y
 
-    # def get_fast_weights(self, global_weight, delta_weight):
-    #     return torch.cat([global_weight[0], global_weight[1].reshape(-1, 1)], axis=1) - delta_weight.reshape \
-    #         (*self.hn_shape)
-    #
     def get_density_loss(self, delta_weights:torch.tensor):
         """gets density loss for the output of hypernetwork"""
+        if self.prior_distribution is None or self.prior_distribution_temp != self.epoch_property.temp_w:
+            # generate new distribution on temp change or on first loss calculation
+            self.prior_distribution_temp = self.epoch_property.temp_w
+            self.prior_distribution = torch.distributions.MultivariateNormal(
+                torch.zeros(self.hn_shape[0] * self.hn_shape[1]).cuda(),
+                self.prior_distribution_temp * torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda(), validate_args=False)
         return self.prior_distribution.log_prob(delta_weights).mean()
 
-    # def get_density_loss(self, weights):
-    #     if weights[0].fast is not None:
-    #         return self.prior_distribution.log_prob(torch.cat([weights[0].fast, weights[1].fast.reshape(-1, 1)], axis=1).flatten())
-    #     return torch.tensor([0])
-
-    def forward(self, x: torch.tensor, train_stage):  # x.shape = 5,65 = 5,64 + bias
-        # 1) output z hypernetworka zamieniamy na embedding rozmiaru z_dim
+    def forward(self, x: torch.tensor, train_stage):
+        # 1) output of hypernetwork to embedding of size z_dim
         z = x.flatten()
-        # 2) wylosuj sample z rozkladu normalnego
+        # 2) sample from normal distrib
         num_points = self.num_points_train if train_stage else self.num_points_test
         y = self.get_sample(num_points)
-        # 3) przerzuc przez flow -> w_i := F_{\theta}(z_i)
+        # 3) map to flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
         delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
         # ------- LOSS ----------
-        # zaktualizowane parametry TN do liczenia lossu
         y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
         delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
         log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
