@@ -218,7 +218,7 @@ class FHyperMAML(MAML):
             in_dim = self.feat_dim if i == 0 else self.hn_tn_hidden_size
             out_dim = self.n_way if i == (self.hn_tn_depth - 1) else self.hn_tn_hidden_size
 
-            linear = backbone.Linear_fw(in_dim, out_dim)
+            linear = backbone.FLinear_fw(in_dim, out_dim)
             linear.bias.data.fill_(0)
 
             layers.append(linear)

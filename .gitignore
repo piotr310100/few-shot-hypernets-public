@@ -150,3 +150,4 @@ filelists/QMUL/*.json
 record/
 
 .vscode/
+/exp_1_data/
