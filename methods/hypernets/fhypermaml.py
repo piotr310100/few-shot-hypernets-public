@@ -174,7 +174,7 @@ class FHyperMAML(MAML):
         self.flow_temp_step = None
 
     def _sample_temp_step(self):
-        if self.dkl_downfall_strategy == 'None':
+        if self.flow_temp_strategy == 'None':
             self.flow.epoch_property.temp_w = self.flow_temp_stop_val
             return
         if self.flow_temp_strategy == "Exp":
@@ -190,19 +190,6 @@ class FHyperMAML(MAML):
                     self.flow.epoch_property.temp_w = 0
                     self.flow_temp_step = self.flow_temp_stop_val / self.flow_num_temperature_warmup_epochs
                 self.flow_temp_scale = self.flow_temp_scale + self.flow_temp_step
-
-    def _update_flow(self):
-        assert self.flow_temp_scale > 0
-        
-        if self.single_test:
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-            return
-        
-        if self.flow_num_temperature_warmup_epochs <= self.flow.epoch_property.curr_epoch \
-                or self.flow.epoch_property.temp_w > self.flow_temp_stop_val:  # any numeric errors
-            self.flow.epoch_property.temp_w = self.flow_temp_stop_val
-        else:
-            self.flow.epoch_property.temp_w = self.flow_temp_scale
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -302,9 +289,9 @@ class FHyperMAML(MAML):
 
                 flow_pass = self.hm_maml_warmup_coef < 1 or self.single_test
                 if flow_pass:
-                    self._update_flow()
                     if self.single_test:
                         cond = False
+                        self.flow.epoch_property.temp_w = self.flow_temp_stop_val
                     else:
                         cond = train_stage
                     delta_params, loss_flow = self.flow(delta_params, cond)
@@ -365,7 +352,7 @@ class FHyperMAML(MAML):
 
     def _update_hm_maml_warmup_coef(self):
         if not self.hm_maml_warmup:
-            self.hm_maml_warmup_coef = 0
+            self.hm_maml_warmup_coef = 0.0
             return
         if self.epoch < self.hm_maml_warmup_epochs:
             self.hm_maml_warmup_coef = 1.0
@@ -600,8 +587,12 @@ class FHyperMAML(MAML):
         task_count = 0
         optimizer.zero_grad()
 
-        self.delta_list = []
+        self._update_hm_maml_warmup_coef()
+        if self.hm_maml_warmup_coef < 1:
+            self._sample_temp_step()
+            self._dkl_downfall()
 
+        self.delta_list = []
         # train
         for i, (x, _) in enumerate(train_loader):
             if self.epoch >= self.hm_maml_warmup_epochs:
@@ -627,11 +618,6 @@ class FHyperMAML(MAML):
                 print('Epoch {:d}/{:d} | Batch {:d}/{:d} | Loss {:f}'.format(self.epoch, self.stop_epoch, i,
                                                                              len(train_loader),
                                                                              torch.stack(self.manager.loss).sum(0).item() / float(i + 1)))
-        if self.hm_maml_warmup_coef < 1:
-            self._sample_temp_step()
-            self._dkl_downfall()
-            #print(f"Epoch {self.epoch}; F_epoch: {self.flow.epoch_property.curr_epoch}: dkl_w {self.flow.epoch_property.dkl_w}, "
-            #f"temp_w {self.flow.epoch_property.temp_w}")
 
         metrics = self.manager.get_metrics(clean_after=True)
 
