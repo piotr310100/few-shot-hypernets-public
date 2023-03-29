@@ -22,6 +22,7 @@ from torchmetrics.functional.classification import multiclass_calibration_error 
 import backbone
 
 from io_utils import model_dict, parse_args, get_best_file, setup_neptune
+from methods.hypernets.hypermaml import HyperMAML
 
 save_numeric_data = True
 
@@ -150,8 +151,6 @@ def initLocalDirectories():
     os.mkdir('exp_1_data/Unseen/Query')
 
 
-
-
 def experiment(params_experiment):
     if save_numeric_data:
         initLocalDirectories()
@@ -188,6 +187,34 @@ def experiment(params_experiment):
     backbone.SimpleBlock.maml = True
     backbone.BottleneckBlock.maml = True
     backbone.ResNet.maml = True
+    model = HyperMAML(model_dict[params_experiment.model], params=params_experiment,
+                       approx=(params_experiment.method == 'maml_approx'),
+                       **train_few_shot_params)
+
+    if params_experiment.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+        model.n_task = 32
+        model.train_lr = 0.1
+    model = model.cuda()
+
+    suffix = 'hyper_maml_exp'
+    params_experiment.method = 'hyper_maml'
+    # checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
+    # add your own filepath
+    checkpoint_dir = './save/checkpoints/cross_char/Conv4_hyper_maml_5way_1shot_fhmaml_best'
+    modelfile = get_best_file(checkpoint_dir)  # load best from given model
+    print("Using model file", modelfile)
+    if modelfile is not None:
+        tmp = torch.load(modelfile)
+        model.load_state_dict(tmp['state'])
+    else:
+        print("[WARNING] Cannot find 'best_file.tar' in: " + str(params_experiment.checkpoint_dir))
+
+    models['hyper_maml'] = model
+    #######################################
+    backbone.ConvBlock.maml = True
+    backbone.SimpleBlock.maml = True
+    backbone.BottleneckBlock.maml = True
+    backbone.ResNet.maml = True
     model = FHyperMAML(model_dict[params_experiment.model], params=params_experiment,
                         approx=(params_experiment.method == 'maml_approx'),
                         **train_few_shot_params)
@@ -199,8 +226,11 @@ def experiment(params_experiment):
 
     suffix = 'fhyper_maml_exp'
     params_experiment.method = 'fhyper_maml'
-    checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
-
+    # checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
+    # add your own filepath
+    checkpoint_dir = './save/checkpoints/cross_char/Conv4_fhyper_maml_5way_1shot_optionAtomic_0_flow_w_1e-6'
+    # .\save\checkpoints\cross_char\Conv4_fhyper_maml_5way_1shot_optionAtomic_0_flow_w_1e-6
+    # .\save\checkpoints\cross_char\Conv4_hyper_maml_5way_1shot_3_512_crosschar_lr0.01_wsn5_val0.001
     modelfile = get_best_file(checkpoint_dir)  # load best from given model
     print("Using model file", modelfile)
     if modelfile is not None:
@@ -228,7 +258,9 @@ def experiment(params_experiment):
 
     suffix = 'bayes_hmaml_exp'
     params_experiment.method = 'bayes_hmaml'
-    params_experiment.checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
+    # add your own filepath
+    #params_experiment.checkpoint_dir = getCheckpointDir(params_experiment, configs, suffix)
+    params_experiment.checkpoint_dir = './save/checkpoints/cross_char/Conv4_hyper_maml_5way_1shot_3_512_crosschar_lr0.01_wsn5_val0.001'
 
     modelfile = get_best_file(params_experiment.checkpoint_dir)  # load best from given model
     print("Using model file", modelfile)
@@ -295,6 +327,7 @@ def experiment(params_experiment):
                 weight.fast=None
             if model_name == 'fhyper_maml':
                 model.manager.clear_all_fields()
+
             model.set_forward(data)
 
             out = F.softmax(model(support_data1), dim=1)
