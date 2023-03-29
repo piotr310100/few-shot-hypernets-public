@@ -113,7 +113,7 @@ class CRegression(nn.Module):
         def __init__(self):
             # changes via fhypermaml module
             self.temp_w = 0
-            self.dkl_w = 0
+            self.dkl_w = 1
             self.curr_epoch = 0
 
     def __init__(self, args):
