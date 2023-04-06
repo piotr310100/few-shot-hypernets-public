@@ -125,8 +125,13 @@ class FHyperMAML(MAML):
         self._init_hypernet_modules(params)
         self._init_feature_net()
 
-        self.flow_num_temperature_warmup_epochs = params.flow_temp_warmup_epochs
+        self.flow_temp_stop_epoch = params.flow_temp_stop_epoch
+        self.flow_temp_start_epoch = params.flow_temp_start_epoch
         self.flow_temp_strategy = params.flow_temp_strategy
+        self.flow_temp_start_val = params.flow_temp_start_val
+        self.flow_temp_stop_val = params.flow_temp_stop_val
+        self.flow_temp_step = None
+
         self.num_points_train = params.num_points_train
         self.num_points_test = params.num_points_test
 
@@ -169,27 +174,50 @@ class FHyperMAML(MAML):
         # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
         self.manager = self._MetricsManager(self.flow_w)
-        self.flow_temp_scale = params.flow_temp_scale
-        self.flow_temp_stop_val = params.flow_temp_stop_val
-        self.flow_temp_step = None
 
     def _sample_temp_step(self):
         if self.flow_temp_strategy == 'None':
             self.flow.epoch_property.temp_w = self.flow_temp_stop_val
             return
-        if self.flow_temp_strategy == "Exp":
-            if self.flow_num_temperature_warmup_epochs > self.flow.epoch_property.curr_epoch and self.flow_num_temperature_warmup_epochs > 0:
+        elif self.flow_temp_strategy == "Exp":
+            if self.epoch < self.flow_temp_start_epoch:
+                self.flow.epoch_property.temp_w = self.flow_temp_start_val
+            elif self.flow_temp_start_epoch <= self.epoch < self.flow_temp_stop_epoch:
                 if self.flow_temp_step is None:
-                    self.flow.epoch_property.temp_w = 1
-                    self.flow_temp_step = np.power(1 / self.flow_temp_scale * self.flow_temp_stop_val,
-                                                   1 / self.flow_num_temperature_warmup_epochs)
-                self.flow_temp_scale = self.flow_temp_scale * self.flow_temp_step          
+                    flow_num_temperature_warmup_epochs = self.flow_temp_stop_epoch - self.flow_temp_start_epoch
+                    self.flow_temp_step = np.power(self.flow_temp_stop_val / self.flow_temp_start_val,
+                                                   1.0 / flow_num_temperature_warmup_epochs)
+                self.flow.epoch_property.temp_w *= self.flow_temp_step
+            else:
+                self.flow.epoch_property.temp_w = self.flow_temp_stop_val          
         elif self.flow_temp_strategy == "Linear":
-            if self.flow_num_temperature_warmup_epochs > self.flow.epoch_property.curr_epoch and self.flow_num_temperature_warmup_epochs > 0:
+            if self.epoch < self.flow_temp_start_epoch:
+                self.flow.epoch_property.temp_w = self.flow_temp_start_val
+            elif self.flow_temp_start_epoch <= self.epoch < self.flow_temp_stop_epoch:
                 if self.flow_temp_step is None:
-                    self.flow.epoch_property.temp_w = 0
-                    self.flow_temp_step = self.flow_temp_stop_val / self.flow_num_temperature_warmup_epochs
-                self.flow_temp_scale = self.flow_temp_scale + self.flow_temp_step
+                    flow_num_temperature_warmup_epochs = self.flow_temp_stop_epoch - self.flow_temp_start_epoch
+                    temp_delta = self.flow_temp_stop_val - self.flow_temp_start_val
+                    self.flow_temp_step = temp_delta / flow_num_temperature_warmup_epochs
+                self.flow.epoch_property.temp_w += self.flow_temp_step
+            else:
+                self.flow.epoch_property.temp_w = self.flow_temp_stop_val
+
+    def _dkl_downfall(self):
+        if self.dkl_downfall_stop_epoch == -1:
+            self.dkl_downfall_stop_epoch = self.stop_epoch
+        if self.dkl_downfall_strategy == 'None':
+            self.flow.epoch_property.dkl_w = 1.0
+            return
+        if self.dkl_downfall_strategy == 'Exp':
+            raise NotImplementedError()
+
+        if self.dkl_downfall_start_epoch <= self.epoch < self.dkl_downfall_stop_epoch:
+            if not self.dkl_downfall_linear_delta:
+                num_epochs = self.dkl_downfall_stop_epoch - self.dkl_downfall_start_epoch
+                assert num_epochs >= 0
+                self.dkl_downfall_linear_delta = (1 - 10 ** (-self.dkl_downfall_magnitude) ) * \
+                                                 self.flow.epoch_property.dkl_w / num_epochs
+            self.flow.epoch_property.dkl_w = self.flow.epoch_property.dkl_w - self.dkl_downfall_linear_delta
 
     def _init_feature_net(self):
         if self.hm_load_feature_net:
@@ -362,23 +390,6 @@ class FHyperMAML(MAML):
                                        (self.hm_maml_warmup_switch_epochs + 1)
             return
         self.hm_maml_warmup_coef = 0
-
-    def _dkl_downfall(self):
-        if self.dkl_downfall_stop_epoch == -1:
-            self.dkl_downfall_stop_epoch = self.stop_epoch
-        if self.dkl_downfall_strategy == 'None':
-            self.flow.epoch_property.dkl_w = 1.0
-            return
-        if self.dkl_downfall_strategy == 'Exp':
-            raise NotImplementedError()
-
-        if self.dkl_downfall_start_epoch <= self.epoch < self.dkl_downfall_stop_epoch:
-            if not self.dkl_downfall_linear_delta:
-                num_epochs = self.dkl_downfall_stop_epoch - self.dkl_downfall_start_epoch
-                assert num_epochs >= 0
-                self.dkl_downfall_linear_delta = (1 - 10 ** (-self.dkl_downfall_magnitude) ) * \
-                                                 self.flow.epoch_property.dkl_w / num_epochs
-            self.flow.epoch_property.dkl_w = self.flow.epoch_property.dkl_w - self.dkl_downfall_linear_delta
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
@@ -591,6 +602,7 @@ class FHyperMAML(MAML):
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()
             self._dkl_downfall()
+        print(self.flow.epoch_property.temp_w)
 
         self.delta_list = []
         # train
