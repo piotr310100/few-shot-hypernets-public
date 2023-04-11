@@ -23,97 +23,6 @@ import backbone
 from io_utils import model_dict, parse_args, get_best_file, setup_neptune
 from methods.hypernets.hypermaml import HyperMAML
 
-save_numeric_data = True
-
-# plot uncertainty in classification
-def plot_histograms(neptune_run, model_name, s1, s2, q1, q2, num_query, save_numeric_data=save_numeric_data):
-    # seen support
-    if save_numeric_data:
-        path = f'exp_1_data/Seen/Support/{model_name}/no_{num_query}'
-        os.mkdir(path)
-    scores = np.transpose(np.array(s1))
-    for k, score in enumerate(scores):
-        score = np.array(score)
-        # print(f"score shape {score.shape}")
-        fig = plt.figure()
-        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(score)
-        std = np.std(score)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        if neptune_run:
-            neptune_run[f"Seen / Support / {model_name} /no_{num_query} / Class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-        if save_numeric_data:
-            if neptune_run:
-                neptune_run[f"Seen / Support / {model_name} /no_{num_query} / Class {k} data"].upload(File.as_pickle(score))
-            filepath = path + f'/Class_{k}_data'
-            with open(filepath, 'wb') as f:
-                pickle.dump(score, f)
-
-    # seen query
-    if save_numeric_data:
-        path = f'exp_1_data/Seen/Query/{model_name}/no_{num_query}'
-        os.mkdir(path)
-    scores = np.transpose(np.array(q1))
-    for k, score in enumerate(scores):
-        score = np.array(score)
-        fig = plt.figure()
-        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(score)
-        std = np.std(score)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Seen / Query / {model_name} / no_{num_query} / Class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-        # save on neptune
-        if save_numeric_data:
-            if neptune_run:
-                neptune_run[f"Seen / Query / {model_name} / no_{num_query} /  Class {k} data"].upload(File.as_pickle(score))
-            filepath = path + f'/Class_{k}_data'
-            with open(filepath, 'wb') as f:
-                pickle.dump(score, f)
-
-    # unseen support
-    if save_numeric_data:
-        path = f'exp_1_data/Unseen/Support/{model_name}/no_{num_query}'
-        os.mkdir(path)
-    scores = np.transpose(np.array(s2))
-    for k, score in enumerate(scores):
-        score = np.array(score)
-        fig = plt.figure()
-        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(score)
-        std = np.std(score)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Unseen / Support / {model_name} / no_{num_query} / Class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-        if save_numeric_data:
-            # save on neptune
-            neptune_run[f"Unseen / Support / {model_name} / no_{num_query} / Class {k} data"].upload(File.as_pickle(score))
-            # save file locally
-            filepath = path + f'/Class_{k}_data'
-            with open(filepath, 'wb') as f:
-                pickle.dump(score, f)
-    # unseen query
-    if save_numeric_data:
-        path = f'exp_1_data/Unseen/Query/{model_name}/no_{num_query}'
-        os.mkdir(path)
-    scores = np.transpose(np.array(q2))
-    for k, score in enumerate(scores):
-        score = np.array(score)
-        fig = plt.figure()
-        plt.hist(score, edgecolor="black", range=[0, 1], bins=25)
-        mu = np.mean(score)
-        std = np.std(score)
-        plt.title(f'$\mu = {mu:.3}, \sigma = {std:.3}$')
-        neptune_run[f"Unseen / Query / {model_name} / no_{num_query} / Class {k} histogram"].upload(File.as_image(fig))
-        plt.close(fig)
-        if save_numeric_data:
-            # save on neptune
-            neptune_run[f"Unseen / Query / {model_name} / no_{num_query} / Class {k} data"].upload(File.as_pickle(score))
-            # save file locally
-            filepath = path + f'/Class_{k}_data'
-            with open(filepath, 'wb') as f:
-                pickle.dump(score, f)
 
 
 def getCheckpointDir(params, configs, suffix):
@@ -142,22 +51,12 @@ def initLocalDirectories(methods):
     if path.isdir('exp_1_data'):
         shutil.rmtree('exp_1_data')
     os.mkdir('exp_1_data')
-    os.mkdir('exp_1_data/Seen')
-    os.mkdir('exp_1_data/Seen/Support')
-    os.mkdir('exp_1_data/Seen/Query')
-    os.mkdir('exp_1_data/Unseen')
-    os.mkdir('exp_1_data/Unseen/Support')
-    os.mkdir('exp_1_data/Unseen/Query')
-    for method in methods:
-        os.mkdir(f'exp_1_data/Seen/Support/{method}')
-        os.mkdir(f'exp_1_data/Seen/Query/{method}')
-        os.mkdir(f'exp_1_data/Unseen/Support/{method}')
-        os.mkdir(f'exp_1_data/Unseen/Query/{method}')
+
 
 
 def experiment(params_experiment):
-    # if save_numeric_data:
-    #     initLocalDirectories(['hyper_maml', 'fhyper_maml', 'bayes_hmaml'])
+
+    initLocalDirectories(['hyper_maml', 'fhyper_maml', 'bayes_hmaml'])
     num_samples = params_experiment.num_samples
     base_file = configs.data_dir['omniglot'] + 'noLatin.json'
     val_file = configs.data_dir['emnist'] + 'val.json'
@@ -276,7 +175,7 @@ def experiment(params_experiment):
 
     models['bayes_hmaml'] = model        
 
-    neptune_run = setup_neptune(params_experiment)
+    #neptune_run = setup_neptune(params_experiment)
     #neptune_run = None
     # primary batches for adaptation
 
@@ -361,18 +260,25 @@ def experiment(params_experiment):
         s2 = np.array(s2)
         q1 = np.array(q1)
         q2 = np.array(q2)
-        with(open(f'{model_name}_fullUnseenSupport_DATA'),'wb') as f:
-            pickle.dump(s2,f)
-        with(open(f'{model_name}_fullSeenSupport_DATA'), 'wb') as f:
+        curpath = os.path.abspath(os.curdir)
+
+        with(open(f'./exp_1_data/{model_name}_fullUnseenSupport_DATA', 'wb')) as f:
+            pickle.dump(s2, f)
+        with(open(f'./exp_1_data/{model_name}_fullSeenSupport_DATA', 'wb')) as f:
             pickle.dump(s1, f)
-        with(open(f'{model_name}_fullUnseenQuery_DATA'), 'wb') as f:
+        with(open(f'./exp_1_data/{model_name}_fullUnseenQuery_DATA', 'wb')) as f:
             pickle.dump(q2, f)
-        with(open(f'{model_name}_fullSeenQuery_DATA'), 'wb') as f:
+        with(open(f'./exp_1_data/{model_name}_fullSeenQuery_DATA', 'wb')) as f:
             pickle.dump(q1, f)
+
+def dump_file(file_name,file):
+    curpath = os.path.abspath(os.curdir)
+    with(open(os.path.join(curpath,'exp_1_data',file_name)), 'wb') as f:
+        pickle.dump(file,f)
 
 def main():
     # params_experiment = parse_args('train')
-    params_experiment = parse_args('experiment1')   # todo sprawdzic parametry i wywalic najlepiej
+    params_experiment = parse_args('experiment1')
     experiment(params_experiment=params_experiment)
 
 
