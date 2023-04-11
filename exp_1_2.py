@@ -58,8 +58,8 @@ def experiment(params_experiment):
 
     initLocalDirectories(['hyper_maml', 'fhyper_maml', 'bayes_hmaml'])
     num_samples = params_experiment.num_samples
-    base_file = configs.data_dir['omniglot'] + 'noLatin.json'
-    val_file = configs.data_dir['emnist'] + 'val.json'
+    support_file = configs.data_dir['omniglot'] + 'noLatin.json'
+    query_file = configs.data_dir['emnist'] + 'val.json'
 
     if 'Conv' in params_experiment.model:
         if params_experiment.dataset in ['omniglot', 'cross_char']:
@@ -74,12 +74,12 @@ def experiment(params_experiment):
 
     n_way = params_experiment.n_way
     train_few_shot_params = dict(n_way=n_way, n_support=params_experiment.n_shot, n_query=n_query)
-    # base_datamgr = SetDataManager(image_size, **train_few_shot_params)  # n_eposide = 100
-    # base_loader = base_datamgr.get_data_loader(base_file, aug=params_experiment.train_aug)
+    base_datamgr = SetDataManager(image_size, **train_few_shot_params)  # n_eposide = 100
+    base_loader = base_datamgr.get_data_loader(support_file, aug=params_experiment.train_aug)
 
     test_few_shot_params = dict(n_way=n_way, n_support=params_experiment.n_shot, n_query=n_query)
     val_datamgr = SetDataManager(image_size, **test_few_shot_params)
-    val_loader = val_datamgr.get_data_loader(val_file, aug=False)
+    val_loader = val_datamgr.get_data_loader(query_file, aug=False)
 
     if params_experiment.dataset in ['omniglot', 'cross_char']:
         assert params_experiment.model == 'Conv4' and not params_experiment.train_aug, 'omniglot only support Conv4 without augmentation'
@@ -179,27 +179,27 @@ def experiment(params_experiment):
     #neptune_run = None
     # primary batches for adaptation
 
-    x, labels1 = next(iter(val_loader))
-    features = x
+    features1, labels1 = next(iter(base_loader))
+
 
     for _, model in models.items():
-        model.n_query = features.size(1) - model.n_support
+        model.n_query = features1.size(1) - model.n_support
         model.train()
 
-    data = features
-    features = features.cuda()
-    x_var = torch.autograd.Variable(features)
+    data = features1
+    features1 = features1.cuda()
+    x_var = torch.autograd.Variable(features1)
     support_data1 = x_var[:, :model.n_support, :, :, :].contiguous().view(model.n_way * model.n_support,
-                                                                            *x.size()[2:])  # support data
+                                                                            *features1.size()[2:])  # support data
     query_data1 = x_var[:, model.n_support:, :, :, :].contiguous().view(model.n_way * model.n_query,
-                                                                        *x.size()[2:])  # query data
+                                                                        *features1.size()[2:])  # query data
 
     # new batch for experiment
     features2, labels2 = next(iter(val_loader))
-    # print('finding val batch')
-    # if there are repetitions between batches get another batch
-    while reduce(np.intersect1d, (labels1, labels2)).size > 0:
-        features2, labels2 = next(iter(val_loader))
+    # # print('finding val batch')
+    # # if there are repetitions between batches get another batch
+    # while reduce(np.intersect1d, (labels1, labels2)).size > 0:
+    #     features2, labels2 = next(iter(val_loader))
     print(labels2)
     features_unseen = features2
 
