@@ -91,4 +91,6 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
                                                                                       'lasts to the end of training phase)')
     fhypermaml_args.add_argument('--dkl_downfall_magnitude',default=1,type=int,help='magnitude of dkl downfall 10^-x')
     fhypermaml_args.add_argument('--dkl_downfall_strategy',default="None", choices=["Linear", "Exp", "None"] ,help='strategy for dkl loss downfall in flow')
+    
+    fhypermaml_args.add_argument('--bayes_suffix', default="", help='checkpoint_suffix of already taught BayesHMAML model')
     return parser

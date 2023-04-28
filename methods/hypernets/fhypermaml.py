@@ -15,6 +15,35 @@ from methods.maml import MAML
 from regressionFlow.models.networks_regression_SDD_conditional import CRegression
 from methods.hypernets.hypermaml import HyperNet
 
+from methods.hypernets.bayeshmaml import BayesHMAML
+from io_utils import model_dict, get_best_file
+import configs
+from pathlib import Path
+from json import load
+
+def getBayesCheckpointDir(params, configs, suffix):
+    checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (
+        configs.save_dir,
+        params.dataset,
+        params.model,
+        'bayes_hmaml'
+    )
+
+    if params.train_aug:
+        checkpoint_dir += '_aug'
+    checkpoint_dir += '_%dway_%dshot' % (params.train_n_way, params.n_shot)
+    if suffix:
+        checkpoint_dir = checkpoint_dir + "_" + suffix
+
+    if params.dataset == "cross":
+        if not Path(checkpoint_dir).exists():
+            checkpoint_dir = checkpoint_dir.replace("cross", "miniImagenet")
+
+    assert Path(checkpoint_dir).exists(), checkpoint_dir
+    return checkpoint_dir
+
+
+
 # FlowHyperMAML (HyperMAML with modified loss calculated with regFlow)
 class FHyperMAML(MAML):
     class _MetricsManager:
@@ -174,6 +203,27 @@ class FHyperMAML(MAML):
         # args for scaling flow temp and dkl
         self.flow_w = params.flow_w
         self.manager = self._MetricsManager(self.flow_w)
+
+        # load frozen bayeshmaml model
+        checkpoint_dir = getBayesCheckpointDir(params, configs, params.bayes_suffix)
+        bayes_args_json = open(checkpoint_dir + '/args.json')
+        bayes_args_dict = load(bayes_args_json)
+        bayes_args = Namespace(**bayes_args_dict)
+        n_query = max(1, int(16 * bayes_args.test_n_way / bayes_args.train_n_way))
+        train_few_shot_params = dict(n_way=bayes_args.train_n_way, n_support=bayes_args.n_shot, n_query=n_query)
+        self.bayes_model = BayesHMAML(model_dict[bayes_args.model], params=bayes_args,
+                        approx=(bayes_args.method == 'maml_approx'),
+                        **train_few_shot_params)
+        # parts used by bayeshmaml during training only
+        # if bayes_args.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
+        #     self.bayes_model.n_task = 32
+        #     self.bayes_model.train_lr = 0.1 
+        modelfile = get_best_file(checkpoint_dir)  # load best from given model
+        tmp = torch.load(modelfile)
+        self.bayes_model.load_state_dict(tmp['state'])
+        # freeze parameters of loaded model
+        for param in self.bayes_model.parameters():
+            param.requires_grad = False
 
     def _sample_temp_step(self):
         if self.flow_temp_strategy == 'None':
