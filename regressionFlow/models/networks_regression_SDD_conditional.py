@@ -182,7 +182,7 @@ class CRegression(nn.Module):
         loss = log_px.reshape(1)
 
         delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
-        return delta_target_networks_weights, loss
+        return delta_target_networks_weights, -loss
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):
