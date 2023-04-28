@@ -145,11 +145,12 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def get_sample(self, num_points):
+    def get_sample(self, num_points, mu = 0, sigma = 1):
         if self.prior_distribution_temp is None:
             self.prior_distribution_temp = self.epoch_property.temp_w
-        y = self.epoch_property.temp_w * self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None,
-                                                                self.gpu)
+        eps = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
+        # y = self.epoch_property.temp_w * eps
+        y = mu + sigma * eps
         return y
 
     def get_density_loss(self, delta_weights:torch.tensor):
@@ -162,15 +163,16 @@ class CRegression(nn.Module):
                 self.prior_distribution_temp * torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda(), validate_args=False)
         return self.prior_distribution.log_prob(delta_weights).mean()
 
-    def forward(self, x: torch.tensor, train_stage):
+    def forward(self, x: torch.tensor, train_stage, mu, sigma):
         # 1) output of hypernetwork to embedding of size z_dim
         z = x.flatten()
         # 2) sample from normal distrib
         num_points = self.num_points_train if train_stage else self.num_points_test
-        y = self.get_sample(num_points)
+        y = self.get_sample(num_points, mu, sigma)
         # 3) map to flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
-        delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
+        # delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
+        delta_target_networks_weights = y
         # ------- LOSS ----------
         y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
         delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
