@@ -145,12 +145,15 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def get_sample(self, num_points, mu = 0, sigma = 1):
+    def get_sample(self, num_points, train_stage, mu = 0, sigma = 1):
         if self.prior_distribution_temp is None:
             self.prior_distribution_temp = self.epoch_property.temp_w
         eps = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
-        # y = self.epoch_property.temp_w * eps
-        y = mu + sigma * eps
+        if train_stage:
+            y = mu + sigma * eps
+        else:
+            y = self.epoch_property.temp_w * eps
+        
         return y
 
     def get_density_loss(self, delta_weights:torch.tensor):
@@ -168,7 +171,7 @@ class CRegression(nn.Module):
         z = x.flatten()
         # 2) sample from normal distrib
         num_points = self.num_points_train if train_stage else self.num_points_test
-        y = self.get_sample(num_points, mu, sigma)
+        y = self.get_sample(num_points, train_stage, mu, sigma)
         # 3) map to flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
         # delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())

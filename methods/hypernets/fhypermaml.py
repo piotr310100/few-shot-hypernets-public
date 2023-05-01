@@ -413,23 +413,23 @@ class FHyperMAML(MAML):
         else:
             raise NotImplementedError("Use --hm_use_class_batch_input for flow support.")
 
-    def _update_weight(self, weight, update_value):
+    def _update_weight(self, weight, update_value, bayes_weight):
         if self.hm_update_operator != 'minus':
             raise NotImplementedError("flow loss formula hardcoded for minus update-operator only")
 
         if self.hm_update_operator == 'minus':
             if weight.fast is None:
-                weight.fast = weight - update_value
+                weight.fast = bayes_weight - update_value
             else:
                 weight.fast = weight.fast - update_value
         elif self.hm_update_operator == 'plus':
             if weight.fast is None:
-                weight.fast = weight + update_value
+                weight.fast = bayes_weight + update_value
             else:
                 weight.fast = weight.fast + update_value
         elif self.hm_update_operator == 'multiply':
             if weight.fast is None:
-                weight.fast = weight * update_value
+                weight.fast = bayes_weight * update_value
             else:
                 weight.fast = weight.fast * update_value
 
@@ -448,65 +448,65 @@ class FHyperMAML(MAML):
 
     def _update_network_weights(self, delta_params_list, flow_loss, support_embeddings, support_data_labels,
                                 train_stage=False):
-        if self.hm_maml_warmup and not self.single_test:
-            self._update_hm_maml_warmup_coef()
-            if self.hm_maml_warmup_coef > 0.0:
-                fast_parameters = []
-                if self.hm_maml_update_feature_net:
-                    fet_fast_parameters = list(self.feature.parameters())
-                    for weight in self.feature.parameters():
-                        weight.fast = None
-                    self.feature.zero_grad()
-                    fast_parameters = fast_parameters + fet_fast_parameters
+        # if self.hm_maml_warmup and not self.single_test:
+        #     self._update_hm_maml_warmup_coef()
+        #     if self.hm_maml_warmup_coef > 0.0:
+        #         fast_parameters = []
+        #         if self.hm_maml_update_feature_net:
+        #             fet_fast_parameters = list(self.feature.parameters())
+        #             for weight in self.feature.parameters():
+        #                 weight.fast = None
+        #             self.feature.zero_grad()
+        #             fast_parameters = fast_parameters + fet_fast_parameters
 
-                clf_fast_parameters = list(self.classifier.parameters())
-                for weight in self.classifier.parameters():
-                    weight.fast = None
-                self.classifier.zero_grad()
-                fast_parameters = fast_parameters + clf_fast_parameters
+        #         clf_fast_parameters = list(self.classifier.parameters())
+        #         for weight in self.classifier.parameters():
+        #             weight.fast = None
+        #         self.classifier.zero_grad()
+        #         fast_parameters = fast_parameters + clf_fast_parameters
 
-                for task_step in range(self.task_update_num):
-                    scores = self.classifier(support_embeddings)
+        #         for task_step in range(self.task_update_num):
+        #             scores = self.classifier(support_embeddings)
 
-                    # loss_ce = self.loss_fn(scores, support_data_labels)
-                    # set_loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
-                    set_loss = flow_loss
+        #             # loss_ce = self.loss_fn(scores, support_data_labels)
+        #             # set_loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
+        #             set_loss = flow_loss
 
-                    grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
-                                               allow_unused=True)  # build full graph support gradient of gradient
+        #             grad = torch.autograd.grad(set_loss, fast_parameters, create_graph=True,
+        #                                        allow_unused=True)  # build full graph support gradient of gradient
 
-                    if self.approx:
-                        grad = [g.detach() for g in
-                                grad]  # do not calculate gradient of gradient if using first order approximation
+        #             if self.approx:
+        #                 grad = [g.detach() for g in
+        #                         grad]  # do not calculate gradient of gradient if using first order approximation
 
-                    if self.hm_maml_update_feature_net:
-                        # update weights of feature networ
-                        for k, weight in enumerate(self.feature.parameters()):
-                            update_value = self.train_lr * self.hm_maml_warmup_coef * grad[k]
-                            self._update_weight(weight, update_value)
+        #             if self.hm_maml_update_feature_net:
+        #                 # update weights of feature networ
+        #                 for k, weight in enumerate(self.feature.parameters()):
+        #                     update_value = self.train_lr * self.hm_maml_warmup_coef * grad[k]
+        #                     self._update_weight(weight, update_value)
 
-                    classifier_offset = len(fet_fast_parameters) if self.hm_maml_update_feature_net else 0
+        #             classifier_offset = len(fet_fast_parameters) if self.hm_maml_update_feature_net else 0
 
-                    if self.hm_maml_warmup_coef == 1:
-                        # update weights of classifier network by adding gradient
-                        for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = (self.train_lr * grad[classifier_offset + k]).unsqueeze(0)
-                            self._update_weight(weight, update_value)
+        #             if self.hm_maml_warmup_coef == 1:
+        #                 # update weights of classifier network by adding gradient
+        #                 for k, weight in enumerate(self.classifier.parameters()):
+        #                     update_value = (self.train_lr * grad[classifier_offset + k]).unsqueeze(0)
+        #                     self._update_weight(weight, update_value)
 
-                    elif 0.0 < self.hm_maml_warmup_coef < 1.0:
-                        # update weights of classifier network by adding gradient and output of hypernetwork
-                        for k, weight in enumerate(self.classifier.parameters()):
-                            update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
-                                    (1 - self.hm_maml_warmup_coef) * delta_params_list[k]))
-                            self._update_weight(weight, update_value)
-            else:
-                for k, weight in enumerate(self.classifier.parameters()):
-                    update_value = delta_params_list[k]
-                    self._update_weight(weight, update_value)
-        else:
-            for k, weight in enumerate(self.classifier.parameters()):
-                update_value = delta_params_list[k]
-                self._update_weight(weight, update_value)
+        #             elif 0.0 < self.hm_maml_warmup_coef < 1.0:
+        #                 # update weights of classifier network by adding gradient and output of hypernetwork
+        #                 for k, weight in enumerate(self.classifier.parameters()):
+        #                     update_value = ((self.train_lr * self.hm_maml_warmup_coef * grad[classifier_offset + k]) + (
+        #                             (1 - self.hm_maml_warmup_coef) * delta_params_list[k]))
+        #                     self._update_weight(weight, update_value)
+        #     else:
+        #         for k, weight in enumerate(self.classifier.parameters()):
+        #             update_value = delta_params_list[k]
+        #             self._update_weight(weight, update_value)
+        # else:
+        for k, (weight, bayes_weight) in enumerate(zip(self.classifier.parameters(), self.bayes_model.classifier.parameters())):
+            update_value = delta_params_list[k]
+            self._update_weight(weight, update_value, bayes_weight)
 
         def group_layers(lst):
             """ generates entries of layers (weights + bias)"""
