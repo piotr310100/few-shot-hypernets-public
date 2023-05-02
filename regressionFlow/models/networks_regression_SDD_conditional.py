@@ -174,8 +174,11 @@ class CRegression(nn.Module):
         y = self.get_sample(num_points, train_stage, mu, sigma)
         # 3) map to flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
-        # delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
-        delta_target_networks_weights = y
+        if train_stage:
+            delta_target_networks_weights = y
+        else:
+            delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
+        
         # ------- LOSS ----------
         y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
         delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
