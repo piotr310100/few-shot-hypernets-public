@@ -214,6 +214,7 @@ class FHyperMAML(MAML):
         self.bayes_model = BayesHMAML(model_dict[bayes_args.model], params=bayes_args,
                         approx=(bayes_args.method == 'maml_approx'),
                         **train_few_shot_params)
+        self.bayes_model.hm_maml_warmup = False
         # parts used by bayeshmaml during training only
         # if bayes_args.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
         #     self.bayes_model.n_task = 32
@@ -543,7 +544,8 @@ class FHyperMAML(MAML):
             return [torch.zeros(*i).cuda() for (_, i) in self.target_net_param_shapes.items()],flow_loss
 
     def forward(self, x):
-        out = self.feature.forward(x)
+        # out = self.feature.forward(x)
+        out = self.bayes_model.feature.forward(x)
 
         if self.hm_detach_feature_net:
             out = out.detach()
@@ -567,7 +569,8 @@ class FHyperMAML(MAML):
                                                                           *x.size()[2:])  # query data
         support_data_labels = self.get_support_data_labels()
 
-        support_embeddings = self.feature(support_data)
+        # support_embeddings = self.feature(support_data)
+        support_embeddings = self.bayes_model.feature(support_data)
 
         if self.hm_detach_feature_net:
             support_embeddings = support_embeddings.detach()
@@ -752,6 +755,9 @@ class FHyperMAML(MAML):
             ret.append(eval_time)
         ret.append(metrics)
 
+        # self.bayes_model.test_loop(test_loader)
+        # self.bayes_model.hm_set_forward_with_adaptation = False
+        # self.bayes_model.test_loop(test_loader)
         return ret
 
     def set_forward_with_adaptation(self, x: torch.Tensor):
