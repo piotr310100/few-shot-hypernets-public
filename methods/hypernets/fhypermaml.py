@@ -104,7 +104,7 @@ class FHyperMAML(MAML):
 
     def __init__(self, model_func, n_way, n_support, n_query, params=None, approx=False):
         super(FHyperMAML, self).__init__(model_func, n_way, n_support, n_query, params=params)
-        # self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = nn.CrossEntropyLoss()
         self.hn_tn_hidden_size = params.hn_tn_hidden_size
         self.hn_tn_depth = params.hn_tn_depth
         self._init_classifier()
@@ -214,17 +214,17 @@ class FHyperMAML(MAML):
         self.bayes_model = BayesHMAML(model_dict[bayes_args.model], params=bayes_args,
                         approx=(bayes_args.method == 'maml_approx'),
                         **train_few_shot_params)
-        self.bayes_model.hm_maml_warmup = False
         # parts used by bayeshmaml during training only
         # if bayes_args.dataset in ['omniglot', 'cross_char']:  # maml use different parameter in omniglot
         #     self.bayes_model.n_task = 32
         #     self.bayes_model.train_lr = 0.1 
+        self.bayes_model.hm_maml_warmup = False
         modelfile = get_best_file(checkpoint_dir)  # load best from given model
         tmp = torch.load(modelfile)
         self.bayes_model.load_state_dict(tmp['state'])
-        # freeze parameters of loaded model
-        for param in self.bayes_model.parameters():
-            param.requires_grad = False
+        # # freeze parameters of loaded model
+        # for param in self.bayes_model.parameters():
+        #     param.requires_grad = False
 
     def _sample_temp_step(self):
         if self.flow_temp_strategy == 'None':
@@ -613,12 +613,12 @@ class FHyperMAML(MAML):
             support_data_labels = torch.from_numpy(np.repeat(range(self.n_way), self.n_support)).cuda()
             query_data_labels = torch.cat((support_data_labels, query_data_labels))
 
-        # loss_ce = self.loss_fn(scores, query_data_labels)
+        loss_ce = self.loss_fn(scores, query_data_labels)
 
-        # loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
+        loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
         loss = flow_loss
 
-        # self.manager.append('loss_ce', loss_ce.item())
+        self.manager.append('loss_ce', loss_ce.item())
 
         if self.hm_lambda != 0:
             loss = loss + self.hm_lambda * total_delta_sum
@@ -635,9 +635,9 @@ class FHyperMAML(MAML):
         scores, _, flow_loss = self.set_forward(x, is_feature=False, train_stage=False)
         support_data_labels = Variable(torch.from_numpy(np.repeat(range(self.n_way), self.n_support))).cuda()
 
-        # loss_ce = self.loss_fn(scores, support_data_labels)
-        # self.manager.append('loss_ce',loss_ce.item())
-        # loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
+        loss_ce = self.loss_fn(scores, support_data_labels)
+        self.manager.append('loss_ce',loss_ce.item())
+        loss = loss_ce + self.flow_w * flow_loss.to(loss_ce)
         loss = flow_loss
         self.manager.append('loss',loss)
 
@@ -729,7 +729,7 @@ class FHyperMAML(MAML):
                 self.n_query = x.size(1) - self.n_support
                 assert self.n_way == x.size(0), f"MAML do not support way change, {self.n_way=}, {x.size(0)=}"
                 s = time()
-                correct_this, count_this, loss_ce_test = self.correct(x)
+                correct_this, count_this = self.correct(x)
                 t = time()
                 acc_all.append(correct_this / count_this * 100)
                 eval_time += (t - s)
@@ -738,8 +738,6 @@ class FHyperMAML(MAML):
             k: np.mean(v) if len(v) > 0 else 0
             for (k, v) in acc_at.items()
         }
-        if not self.hm_set_forward_with_adaptation:
-            metrics["ce_loss_test"] = loss_ce_test.item()
 
         num_tasks = len(acc_all)
         acc_all = np.asarray(acc_all)
@@ -808,12 +806,8 @@ class FHyperMAML(MAML):
     def correct(self, x):
         scores, *_ = self.set_forward(x)
         y_query = np.repeat(range(self.n_way), self.n_query)
-
-        # with torch.no_grad():
-        #     loss_ce = self.loss_fn(scores, torch.from_numpy(y_query).cuda())
-        loss_ce = torch.tensor([0])
-
+        
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy()
         top1_correct = np.sum(topk_ind[:, 0] == y_query)
-        return float(top1_correct), len(y_query), loss_ce
+        return float(top1_correct), len(y_query)
