@@ -226,6 +226,18 @@ class FHyperMAML(MAML):
         # for param in self.bayes_model.parameters():
         #     param.requires_grad = False
 
+        self.bayes_scale_start_epoch = params.bayes_scale_start_epoch
+        self.bayes_scale_epochs = params.bayes_scale_epochs
+
+    def _bayes_step(self):
+        if self.epoch < self.bayes_scale_start_epoch:
+            self.bayes_coef = 1.0
+        elif self.bayes_scale_start_epoch <= self.epoch < self.bayes_scale_start_epoch + self.bayes_scale_epochs:
+            self.bayes_coef = (self.bayes_scale_start_epoch + self.bayes_scale_epochs - self.epoch) / \
+                                       (self.bayes_scale_epochs + 1)
+        else:
+            self.bayes_coef = 0
+
     def _sample_temp_step(self):
         if self.flow_temp_strategy == 'None':
             self.flow.epoch_property.temp_w = self.flow_temp_stop_val
@@ -378,12 +390,15 @@ class FHyperMAML(MAML):
                         self.flow.epoch_property.temp_w = self.flow_temp_stop_val
                     else:
                         cond = train_stage
-                    delta_params, loss_flow = self.flow(delta_params, cond, mu, sigma)
+                    delta_params, loss_flow, loss_kl = self.flow(delta_params, cond, mu, sigma, self.bayes_coef > 0)
                     delta_params_std_list.append(torch.mean(torch.std(delta_params, dim=1)).item())
                     # density_loss = self.flow.get_density_loss(delta_params)
                     raw_loss_flow_list.append(loss_flow)
                     # density_loss_list.append(density_loss)  # before scaling
                     # loss_flow = self.flow.epoch_property.dkl_w * (loss_flow - density_loss)
+                    loss_flow = self.bayes_coef * loss_flow
+                    loss_kl = (1 - self.bayes_coef) * loss_kl
+                    loss_flow = loss_flow + loss_kl
                 else:
                     loss_flow = torch.tensor([0])
 
@@ -655,6 +670,7 @@ class FHyperMAML(MAML):
         task_count = 0
         optimizer.zero_grad()
 
+        self._bayes_step()
         self._update_hm_maml_warmup_coef()
         if self.hm_maml_warmup_coef < 1:
             self._sample_temp_step()

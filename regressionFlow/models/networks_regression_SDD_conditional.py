@@ -145,12 +145,15 @@ class CRegression(nn.Module):
         opt = _get_opt_(list(self.flownet.parameters()) + list(self.point_cnf.parameters()))
         return opt
 
-    def get_sample(self, num_points, train_stage, mu = 0, sigma = 1):
+    def get_sample(self, num_points, train_stage, use_bayes, mu = 0, sigma = 1):
         if self.prior_distribution_temp is None:
             self.prior_distribution_temp = self.epoch_property.temp_w
         eps = self.sample_gaussian((1, num_points, self.hn_shape[0] * self.hn_shape[1]), None, self.gpu)
         if train_stage:
-            y = mu + sigma * eps
+            if use_bayes:
+                y = mu + sigma * eps
+            y2 = self.epoch_property.temp_w * eps
+            return (y, y2)
         else:
             y = self.epoch_property.temp_w * eps
         
@@ -166,29 +169,50 @@ class CRegression(nn.Module):
                 self.prior_distribution_temp * torch.eye(self.hn_shape[0] * self.hn_shape[1]).cuda(), validate_args=False)
         return self.prior_distribution.log_prob(delta_weights).mean()
 
-    def forward(self, x: torch.tensor, train_stage, mu, sigma):
+    def forward(self, x: torch.tensor, train_stage, mu, sigma, use_bayes):
         # 1) output of hypernetwork to embedding of size z_dim
         z = x.flatten()
         # 2) sample from normal distrib
         num_points = self.num_points_train if train_stage else self.num_points_test
-        y = self.get_sample(num_points, train_stage, mu, sigma)
         # 3) map to flow -> w_i := F_{\theta}(z_i)
         z = self.dim_reducer_hn(z).reshape(-1)
         if train_stage:
-            delta_target_networks_weights = y
+            y, ys = self.get_sample(num_points, train_stage, use_bayes, mu, sigma)
+            if use_bayes:
+                delta_target_networks_weights = y
+            else:
+                delta_target_networks_weights = ys
+            delta = self.point_cnf(ys, z, reverse=True).view(*ys.size())    
+            y2, delta_log_py = self.point_cnf(delta, z, torch.zeros(1, num_points, 1).to(y))
+            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
+            log_px = log_py - delta_log_py
+            # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+            loss_kl = log_px.reshape(1)
+            density_loss = self.get_density_loss(delta)
+            loss_kl = loss_kl - density_loss
+
+            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
+            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
+            log_px = log_py - delta_log_py
+            # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+            loss = log_px.reshape(1)
         else:
+            y = self.get_sample(num_points, train_stage, use_bayes, mu, sigma)
+            loss = torch.tensor([0]).cuda()
             delta_target_networks_weights = self.point_cnf(y, z, reverse=True).view(*y.size())
-        
-        # ------- LOSS ----------
-        y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
-        delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
-        log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
-        log_px = log_py - delta_log_py
-        # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
-        loss = log_px.reshape(1)
+            y2, delta_log_py = self.point_cnf(delta_target_networks_weights, z, torch.zeros(1, num_points, 1).to(y))
+            delta_log_py = delta_log_py.view(1, num_points, 1).mean(1)
+            log_py = standard_normal_logprob(y2,self.epoch_property.temp_w).view(1, -1).mean(1, keepdim=True)
+            log_px = log_py - delta_log_py
+            # policzyc gestosci flowa log p_0(F^{-1}_\theta(w_i) + J
+            loss_kl = log_px.reshape(1)
+            density_loss = self.get_density_loss(delta_target_networks_weights)
+            loss_kl = loss_kl - density_loss
 
         delta_target_networks_weights = delta_target_networks_weights.reshape(num_points, -1)
-        return delta_target_networks_weights, -loss
+        return delta_target_networks_weights, -loss, loss_kl
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):

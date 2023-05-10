@@ -67,7 +67,6 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     hypermaml_args.add_argument("--hm_support_set_loss", action='store_true', help="Use both query and support data when calculating loss")
     hypermaml_args.add_argument("--hm_set_forward_with_adaptation", action='store_true', help="Adapt network before test")
 
-
     # BHMAML only
     bhypermaml_args = parser.add_argument_group("BayesHMAML (only) related arguments")
     bhypermaml_args.add_argument('--hm_weight_set_num_train', default=1, type=int, help='number of randomly generated weights for training (default 1)')
@@ -93,4 +92,6 @@ def add_hn_args_to_parser(parser: ArgumentParser) -> ArgumentParser:
     fhypermaml_args.add_argument('--dkl_downfall_strategy',default="None", choices=["Linear", "Exp", "None"] ,help='strategy for dkl loss downfall in flow')
     
     fhypermaml_args.add_argument('--bayes_suffix', default="", help='checkpoint_suffix of already taught BayesHMAML model')
+    fhypermaml_args.add_argument('--bayes_scale_start_epoch', default=0, help='start of bayes_coef scaling')
+    fhypermaml_args.add_argument('--bayes_scale_epochs', default=100, help='number of scaling epochs')
     return parser
